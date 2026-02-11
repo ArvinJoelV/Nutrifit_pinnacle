@@ -6,6 +6,19 @@ import HomePage from './pages/HomePage';
 import RedirectHandler from './components/RedirectHandler';
 import { OnboardingProvider } from './contexts/OnboardingContext';
 
+import LogFoodPage from './pages/LogFoodPage';
+import InsightsPage from './pages/InsightsPage';
+import EatEffectPage from './pages/EatEffectPage';
+import ProgressPage from './pages/ProgressPage';
+import ProfilePage from './pages/ProfilePage';
+import AppLayout from './components/layout/AppLayout';
+import PhotoLogPage from './pages/log/PhotoLogPage';
+
+import ConfirmMealPage from './pages/log/ConfirmMealPage';
+import MealDetailPage from './pages/log/MealDetailPage';
+import MealSimulatorPage from './pages/log/MealSimulatorPage';
+import SearchLogPage from './pages/log/SearchLogPage';
+
 // Onboarding Pages
 import WelcomePage from './pages/onboarding/WelcomePage';
 import BasicInfoPage from './pages/onboarding/BasicInfoPage';
@@ -13,6 +26,15 @@ import ActivityPage from './pages/onboarding/ActivityPage';
 import GoalPage from './pages/onboarding/GoalPage';
 import LifestylePage from './pages/onboarding/LifestylePage';
 import ProcessingPage from './pages/onboarding/ProcessingPage';
+
+// Authenticated Route Wrapper
+const AuthenticatedRoute = ({ children }) => (
+  <RedirectHandler>
+    <AppLayout>
+      {children}
+    </AppLayout>
+  </RedirectHandler>
+);
 
 function App() {
   return (
@@ -24,9 +46,71 @@ function App() {
 
           {/* Protected Routes */}
           <Route path="/home" element={
-            <RedirectHandler>
+            <AuthenticatedRoute>
               <HomePage />
-            </RedirectHandler>
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/log" element={
+            <AuthenticatedRoute>
+              <LogFoodPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/log/photo" element={
+            <AuthenticatedRoute>
+              <PhotoLogPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/log/confirm" element={
+            <AuthenticatedRoute>
+              <ConfirmMealPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/meal/:id" element={
+            <AuthenticatedRoute>
+              <MealDetailPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/meal/:id/simulator" element={
+            <AuthenticatedRoute>
+              <MealSimulatorPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/log/search" element={
+            <AuthenticatedRoute>
+              <SearchLogPage />
+            </AuthenticatedRoute>
+          } />
+
+
+
+          <Route path="/insights" element={
+            <AuthenticatedRoute>
+              <InsightsPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/eat-effect" element={
+            <AuthenticatedRoute>
+              <EatEffectPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/progress" element={
+            <AuthenticatedRoute>
+              <ProgressPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/profile" element={
+            <AuthenticatedRoute>
+              <ProfilePage />
+            </AuthenticatedRoute>
           } />
 
           {/* Onboarding Routes */}

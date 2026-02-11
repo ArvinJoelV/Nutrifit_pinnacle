@@ -5,6 +5,31 @@ import { useOnboarding } from '../../contexts/OnboardingContext';
 import { motion } from 'framer-motion';
 import { User, Ruler, Weight, Calendar } from 'lucide-react';
 
+const InputField = ({ icon: Icon, label, name, type, placeholder, unit, value, onChange, error }) => (
+    <div className="space-y-2">
+        <label className="text-sm font-medium text-white/40 ml-4 mb-2 block uppercase tracking-widest">{label}</label>
+        <div className={`relative group transition-all duration-300 ${error ? 'animate-shake' : ''}`}>
+            <div className="absolute left-6 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-primary-light transition-colors">
+                <Icon className="w-5 h-5" />
+            </div>
+            <input
+                type={type}
+                name={name}
+                value={value}
+                onChange={onChange}
+                placeholder={placeholder}
+                className={`w-full bg-white/5 border-2 ${error ? 'border-red-500/50' : 'border-white/5 group-focus-within:border-primary-light/50'} rounded-3xl py-5 pl-16 pr-20 text-xl font-bold transition-all outline-none focus:bg-white/10`}
+            />
+            {unit && (
+                <span className="absolute right-8 top-1/2 -translate-y-1/2 text-white/20 font-bold uppercase tracking-widest text-xs italic">
+                    {unit}
+                </span>
+            )}
+        </div>
+        {error && <p className="text-red-400 text-xs ml-4 mt-2 font-medium">{error}</p>}
+    </div>
+);
+
 const BasicInfoPage = () => {
     const navigate = useNavigate();
     const { formData, updateFormData } = useOnboarding();
@@ -35,36 +60,21 @@ const BasicInfoPage = () => {
         }
     };
 
-    const InputField = ({ icon: Icon, label, name, type, placeholder, unit }) => (
-        <div className="space-y-2">
-            <label className="text-sm font-medium text-white/40 ml-4 mb-2 block uppercase tracking-widest">{label}</label>
-            <div className={`relative group transition-all duration-300 ${errors[name] ? 'animate-shake' : ''}`}>
-                <div className="absolute left-6 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-primary-light transition-colors">
-                    <Icon className="w-5 h-5" />
-                </div>
-                <input
-                    type={type}
-                    name={name}
-                    value={formData[name]}
-                    onChange={handleChange}
-                    placeholder={placeholder}
-                    className={`w-full bg-white/5 border-2 ${errors[name] ? 'border-red-500/50' : 'border-white/5 group-focus-within:border-primary-light/50'} rounded-3xl py-5 pl-16 pr-20 text-xl font-bold transition-all outline-none focus:bg-white/10`}
-                />
-                {unit && (
-                    <span className="absolute right-8 top-1/2 -translate-y-1/2 text-white/20 font-bold uppercase tracking-widest text-xs italic">
-                        {unit}
-                    </span>
-                )}
-            </div>
-            {errors[name] && <p className="text-red-400 text-xs ml-4 mt-2 font-medium">{errors[name]}</p>}
-        </div>
-    );
-
     return (
         <OnboardingLayout progress={20} title="The Essentials" subtitle="Tell us a bit about your physical profile.">
             <div className="space-y-12">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <InputField icon={Calendar} label="Age" name="age" type="number" placeholder="25" unit="Years" />
+                    <InputField
+                        icon={Calendar}
+                        label="Age"
+                        name="age"
+                        type="number"
+                        placeholder="25"
+                        unit="Years"
+                        value={formData.age}
+                        onChange={handleChange}
+                        error={errors.age}
+                    />
 
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-white/40 ml-4 mb-2 block uppercase tracking-widest">Gender</label>
@@ -74,8 +84,8 @@ const BasicInfoPage = () => {
                                     key={g}
                                     onClick={() => updateFormData({ gender: g })}
                                     className={`py-5 rounded-3xl border-2 font-bold capitalize transition-all ${formData.gender === g
-                                            ? 'bg-primary-light/20 border-primary-light text-white shadow-lg shadow-primary-light/20'
-                                            : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10'
+                                        ? 'bg-primary-light/20 border-primary-light text-white shadow-lg shadow-primary-light/20'
+                                        : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10'
                                         }`}
                                 >
                                     {g}
@@ -85,8 +95,28 @@ const BasicInfoPage = () => {
                         {errors.gender && <p className="text-red-400 text-xs ml-4 mt-1 font-medium">{errors.gender}</p>}
                     </div>
 
-                    <InputField icon={Ruler} label="Height" name="height" type="number" placeholder="175" unit="cm" />
-                    <InputField icon={Weight} label="Weight" name="weight" type="number" placeholder="70" unit="kg" />
+                    <InputField
+                        icon={Ruler}
+                        label="Height"
+                        name="height"
+                        type="number"
+                        placeholder="175"
+                        unit="cm"
+                        value={formData.height}
+                        onChange={handleChange}
+                        error={errors.height}
+                    />
+                    <InputField
+                        icon={Weight}
+                        label="Weight"
+                        name="weight"
+                        type="number"
+                        placeholder="70"
+                        unit="kg"
+                        value={formData.weight}
+                        onChange={handleChange}
+                        error={errors.weight}
+                    />
                 </div>
 
                 <div className="flex justify-between items-center pt-8">
