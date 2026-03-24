@@ -1,29 +1,66 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Check, RefreshCw } from 'lucide-react';
 import PhotoUpload from '../../components/log/PhotoUpload';
 import FoodDetectionPreview from '../../components/log/FoodDetectionPreview';
 import PortionEditor from '../../components/log/PortionEditor';
-import { mockFoodAnalysis } from '../../data/mockFoodAnalysis';
+import { analyzeMealImage } from '../../services/mealAnalysisService';
 
 const PhotoLogPage = () => {
     const navigate = useNavigate();
     const [step, setStep] = useState('upload'); // upload, analyzing, review
     const [image, setImage] = useState(null);
+    const [imageFile, setImageFile] = useState(null);
+    const [segmentedImage, setSegmentedImage] = useState(null);
+    const [analysisError, setAnalysisError] = useState('');
     const [detectedItems, setDetectedItems] = useState([]);
 
-    const handleImageSelect = (imageUrl) => {
-        setImage(imageUrl);
+    const handleImageSelect = ({ file, previewUrl }) => {
+        if (image && image.startsWith('blob:')) {
+            URL.revokeObjectURL(image);
+        }
+        setImage(previewUrl);
+        setImageFile(file);
+        setSegmentedImage(null);
+        setAnalysisError('');
+        setDetectedItems([]);
         setStep('analyzing');
     };
 
-    const handleAnalysisComplete = () => {
-        // Initialize multiplier to 1 for all items
-        const itemsWithMultiplier = mockFoodAnalysis.items.map(item => ({ ...item, multiplier: 1 }));
-        setDetectedItems(itemsWithMultiplier);
-        setStep('review');
-    };
+    useEffect(() => {
+        if (step !== 'analyzing' || !imageFile) return undefined;
+
+        let isCancelled = false;
+        const controller = new AbortController();
+
+        const runAnalysis = async () => {
+            try {
+                const result = await analyzeMealImage(imageFile, { signal: controller.signal });
+                if (isCancelled) return;
+                setDetectedItems(result.items);
+                setSegmentedImage(result.segmentedImage || null);
+                setStep('review');
+            } catch (error) {
+                if (isCancelled || error.name === 'AbortError') return;
+                setAnalysisError(error.message || 'Analysis failed. Please try another image.');
+                setStep('review');
+            }
+        };
+
+        runAnalysis();
+
+        return () => {
+            isCancelled = true;
+            controller.abort();
+        };
+    }, [imageFile, step]);
+
+    useEffect(() => () => {
+        if (image && image.startsWith('blob:')) {
+            URL.revokeObjectURL(image);
+        }
+    }, [image]);
 
     const handleUpdateItem = (id, multiplier) => {
         setDetectedItems(prev => prev.map(item =>
@@ -37,6 +74,7 @@ const PhotoLogPage = () => {
 
         const finalMealData = {
             image,
+            segmentedImage,
             items: detectedItems,
             totalCalories: Math.round(totalCalories)
         };
@@ -45,7 +83,13 @@ const PhotoLogPage = () => {
     };
 
     const handleRetake = () => {
+        if (image && image.startsWith('blob:')) {
+            URL.revokeObjectURL(image);
+        }
         setImage(null);
+        setImageFile(null);
+        setSegmentedImage(null);
+        setAnalysisError('');
         setDetectedItems([]);
         setStep('upload');
     };
@@ -92,8 +136,9 @@ const PhotoLogPage = () => {
                         <div className="flex justify-center">
                             <FoodDetectionPreview
                                 image={image}
+                                segmentedImage={segmentedImage}
                                 isAnalyzing={step === 'analyzing'}
-                                onAnalysisComplete={handleAnalysisComplete}
+                                error={analysisError}
                             />
                         </div>
 
@@ -107,10 +152,16 @@ const PhotoLogPage = () => {
                                 >
                                     <h3 className="text-lg font-bold mb-4 px-2">Detected Items</h3>
 
-                                    <PortionEditor
-                                        items={detectedItems}
-                                        onUpdateItem={handleUpdateItem}
-                                    />
+                                    {detectedItems.length > 0 ? (
+                                        <PortionEditor
+                                            items={detectedItems}
+                                            onUpdateItem={handleUpdateItem}
+                                        />
+                                    ) : (
+                                        <div className="flex-1 flex items-center justify-center text-center text-white/60 px-4">
+                                            No food items were detected. Try retaking the photo with better lighting.
+                                        </div>
+                                    )}
 
                                     <div className="mt-6 pt-6 border-t border-white/10">
                                         <div className="flex justify-between items-center mb-6 px-2">
@@ -129,7 +180,8 @@ const PhotoLogPage = () => {
                                             </button>
                                             <button
                                                 onClick={handleConfirm}
-                                                className="flex-1 py-4 bg-white text-black rounded-2xl font-bold hover:scale-[1.02] transition-transform flex items-center justify-center gap-2"
+                                                disabled={!detectedItems.length}
+                                                className="flex-1 py-4 bg-white text-black rounded-2xl font-bold hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                                             >
                                                 <Check className="w-5 h-5" />
                                                 <span>Confirm Meal</span>

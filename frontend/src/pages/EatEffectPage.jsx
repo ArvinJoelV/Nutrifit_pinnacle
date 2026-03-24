@@ -3,19 +3,26 @@ import { motion } from 'framer-motion';
 import EnergyGraph from '../components/eat-effect/EnergyGraph';
 import CravingsMeter from '../components/eat-effect/CravingsMeter';
 import { predictMealEffect } from '../data/mockPredictionService';
+import { getDailyStats } from '../services/mealService';
 import { Moon, Scale, ArrowRight, Info } from 'lucide-react';
 
 const EatEffectPage = () => {
     const [prediction, setPrediction] = useState(null);
 
     useEffect(() => {
-        // In a real app, we'd fetch the last meal from storage.
-        // For demo, we'll simulate fetching a meal or use a default if none exists.
-        const storedLogs = JSON.parse(localStorage.getItem('meal_logs') || '[]');
-        const lastMeal = storedLogs.length > 0 ? storedLogs[0] : null; // Get most recent
-
-        const result = predictMealEffect(lastMeal);
-        setPrediction(result);
+        const fetchLastMeal = async () => {
+            // In a real app we might have a specific 'getLastMeal' function, 
+            // but getDailyStats returns the meals array sorted by time already.
+            try {
+                const { meals } = await getDailyStats();
+                const lastMeal = meals.length > 0 ? meals[0] : null;
+                const result = predictMealEffect(lastMeal);
+                setPrediction(result);
+            } catch (e) {
+                console.error(e);
+            }
+        };
+        fetchLastMeal();
     }, []);
 
     if (!prediction) return <div className="p-10 text-center">Loading insights...</div>;

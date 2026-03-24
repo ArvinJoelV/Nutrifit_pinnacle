@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Trash2, Edit2, Activity, ChevronRight, Clock } from 'lucide-react';
-import { getMealLog, deleteMealLog } from '../../data/mockMealStorage';
+import { getMealLog, deleteMealLog } from '../../services/mealService';
 
 const MealDetailPage = () => {
     const { id } = useParams();

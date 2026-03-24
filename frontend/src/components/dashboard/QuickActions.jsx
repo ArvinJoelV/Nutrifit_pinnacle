@@ -24,7 +24,7 @@ const QuickActions = () => {
                 <div className="absolute -right-4 -bottom-4 bg-black/5 w-24 h-24 rounded-full" />
             </motion.button>
 
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 h-full">
                 <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
@@ -37,17 +37,7 @@ const QuickActions = () => {
                     <span className="font-bold">Search Food</span>
                 </motion.button>
 
-                <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => navigate('/log?mode=barcode')}
-                    className="flex-1 bg-white/10 border border-white/10 rounded-[2rem] p-5 flex items-center gap-4 hover:bg-white/20 transition-colors text-left"
-                >
-                    <div className="p-2 bg-white/10 rounded-xl">
-                        <ScanLine className="w-5 h-5" />
-                    </div>
-                    <span className="font-bold">Scan Barcode</span>
-                </motion.button>
+
             </div>
         </div>
     );

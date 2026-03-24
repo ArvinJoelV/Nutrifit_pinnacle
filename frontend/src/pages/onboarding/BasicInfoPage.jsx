@@ -45,6 +45,7 @@ const BasicInfoPage = () => {
 
     const validate = () => {
         const newErrors = {};
+        if (!formData.firstName) newErrors.firstName = "Please enter your name";
         if (!formData.age || formData.age < 13 || formData.age > 120) newErrors.age = "Please enter a valid age (13-120)";
         if (!formData.height || formData.height < 100 || formData.height > 250) newErrors.height = "Height must be between 100-250cm";
         if (!formData.weight || formData.weight < 30 || formData.weight > 300) newErrors.weight = "Weight must be between 30-300kg";
@@ -64,6 +65,17 @@ const BasicInfoPage = () => {
         <OnboardingLayout progress={20} title="The Essentials" subtitle="Tell us a bit about your physical profile.">
             <div className="space-y-12">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <InputField
+                        icon={User}
+                        label="First Name"
+                        name="firstName"
+                        type="text"
+                        placeholder="Alex"
+                        value={formData.firstName}
+                        onChange={handleChange}
+                        error={errors.firstName}
+                    />
+
                     <InputField
                         icon={Calendar}
                         label="Age"

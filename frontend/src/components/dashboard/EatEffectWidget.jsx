@@ -4,7 +4,7 @@ import { Activity, ArrowUpRight } from 'lucide-react';
 
 const EatEffectWidget = ({ data }) => {
     return (
-        <div className="col-span-12 lg:col-span-6 bg-linear-to-br from-accent-light/10 to-accent/5 border border-accent-light/20 rounded-[2.5rem] p-8 relative overflow-hidden group cursor-pointer hover:border-accent-light/40 transition-colors">
+        <div className="col-span-12 lg:col-span-6 bg-linear-to-br from-accent-light/10 to-accent/5 border border-accent-light/20 rounded-[2.5rem] p-8 relative overflow-hidden group cursor-pointer hover:border-accent-light/40 transition-colors h-full">
             <div className="relative z-10">
                 <div className="flex justify-between items-start mb-6">
                     <div className="p-3 bg-accent-light/20 rounded-2xl text-accent-light">

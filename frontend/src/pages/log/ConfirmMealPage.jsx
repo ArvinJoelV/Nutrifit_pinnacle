@@ -1,14 +1,21 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Clock, Save, Edit2, X } from 'lucide-react';
-import { saveMealLog } from '../../data/mockMealStorage';
+import { ArrowLeft, Clock, Save, X } from 'lucide-react';
+import { saveMealLog } from '../../services/mealService';
+
+const getCurrentTimeHHMM = () => {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+};
 
 const ConfirmMealPage = () => {
     const { state } = useLocation();
     const navigate = useNavigate();
     const [isSaving, setIsSaving] = useState(false);
-    const [mealTime, setMealTime] = useState(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    const [mealTime, setMealTime] = useState(getCurrentTimeHHMM());
 
     if (!state?.mealData) {
         return (
@@ -19,7 +26,7 @@ const ConfirmMealPage = () => {
         );
     }
 
-    const { items, totalCalories } = state.mealData;
+    const { items, totalCalories, segmentedImage } = state.mealData;
 
     // Calculate total macros
     const macros = items.reduce((acc, item) => ({
@@ -40,7 +47,8 @@ const ConfirmMealPage = () => {
             });
             navigate(`/meal/${savedLog.id}`);
         } catch (error) {
-            console.error(error);
+            console.error("Save failed:", error); // Changed for debugging
+            alert(`Error saving meal: ${error.message}`); // Added alert for immediate feedback
             setIsSaving(false);
         }
     };
@@ -88,6 +96,20 @@ const ConfirmMealPage = () => {
                 </div>
             </motion.div>
 
+            {segmentedImage && (
+                <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="mb-6 rounded-3xl border border-white/10 overflow-hidden bg-white/5"
+                >
+                    <div className="px-4 py-3 text-xs uppercase tracking-widest text-white/50 font-bold">
+                        AI Segmentation
+                    </div>
+                    <img src={segmentedImage} alt="Segmented food view" className="w-full h-48 object-cover" />
+                </motion.div>
+            )}
+
             {/* Meal Time */}
             <div className="bg-white/5 rounded-2xl p-4 flex justify-between items-center mb-6">
                 <div className="flex items-center gap-3">
@@ -106,9 +128,24 @@ const ConfirmMealPage = () => {
             <div className="flex-1 space-y-4 mb-20 overflow-y-auto custom-scrollbar">
                 <h3 className="text-sm font-bold text-white/40 uppercase tracking-widest px-2">Foods</h3>
                 {items.map((item, idx) => (
-                    <div key={idx} className="bg-white/5 border border-white/5 rounded-2xl p-4 flex justify-between items-center">
+                    <motion.div
+                        key={idx}
+                        initial={{ opacity: 0, x: 18 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.06 }}
+                        className="bg-white/5 border border-white/5 rounded-2xl p-4 flex justify-between items-center"
+                    >
                         <div>
-                            <div className="font-bold mb-1">{item.name}</div>
+                            <div className="font-bold mb-1 flex items-center gap-3">
+                                {item.image && (
+                                    <img
+                                        src={item.image}
+                                        alt={item.name}
+                                        className="w-9 h-9 rounded-lg object-cover border border-white/10"
+                                    />
+                                )}
+                                <span>{item.name}</span>
+                            </div>
                             <div className="text-xs text-white/40 font-medium">
                                 {item.multiplier ? `${item.multiplier}x portion` : item.serving}
                             </div>
@@ -116,7 +153,7 @@ const ConfirmMealPage = () => {
                         <div className="font-black text-lg">
                             {Math.round(item.calories * (item.multiplier || 1))}
                         </div>
-                    </div>
+                    </motion.div>
                 ))}
             </div>
 

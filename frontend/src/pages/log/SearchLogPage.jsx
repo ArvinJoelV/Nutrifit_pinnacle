@@ -1,34 +1,131 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Search, Plus, X, ChevronRight, Check } from 'lucide-react';
-import { mockFoodDatabase, searchCategories } from '../../data/mockFoodDatabase';
+import { AnimatePresence } from 'framer-motion';
+import { ArrowLeft, Search, Plus, X, Check } from 'lucide-react';
+import { searchFoods } from '../../services/foodSearchService';
+
+const PAGE_SIZE = 20;
 
 const SearchLogPage = () => {
     const navigate = useNavigate();
-    const [searchTerm, setSearchTerm] = useState("");
-    const [selectedCategory, setSelectedCategory] = useState("All");
+    const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedTerm, setDebouncedTerm] = useState('');
     const [selectedFood, setSelectedFood] = useState(null);
+    const [foods, setFoods] = useState([]);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [error, setError] = useState('');
+    const observerRef = useRef(null);
 
-    // Modal State
+    // Modal state
     const [quantity, setQuantity] = useState(1);
-    const [mealType, setMealType] = useState("Breakfast");
+    const [mealType, setMealType] = useState('Breakfast');
 
-    // Filtering Logic
-    const filteredFoods = useMemo(() => {
-        return mockFoodDatabase.filter(food => {
-            const matchesSearch = food.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (food.brand && food.brand.toLowerCase().includes(searchTerm.toLowerCase()));
-            const matchesCategory = selectedCategory === "All" || food.category === selectedCategory ||
-                (selectedCategory === "Breakfast" && food.category === "Breakfast"); // Simple category matching
-            return matchesSearch && matchesCategory;
-        });
-    }, [searchTerm, selectedCategory]);
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            setDebouncedTerm(searchTerm.trim());
+        }, 350);
+
+        return () => clearTimeout(timeout);
+    }, [searchTerm]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+
+        const loadFirstPage = async () => {
+            if (debouncedTerm.length < 2) {
+                setFoods([]);
+                setPage(1);
+                setHasMore(false);
+                setError('');
+                return;
+            }
+
+            setIsLoading(true);
+            setError('');
+            try {
+                const { items, hasMore: moreAvailable } = await searchFoods({
+                    query: debouncedTerm,
+                    page: 1,
+                    pageSize: PAGE_SIZE,
+                    signal: controller.signal,
+                });
+                setFoods(items);
+                setPage(1);
+                setHasMore(moreAvailable);
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error('Food search failed:', err);
+                    setFoods([]);
+                    setHasMore(false);
+                    setError('Could not load foods right now. Try again.');
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        loadFirstPage();
+        return () => controller.abort();
+    }, [debouncedTerm]);
+
+    const handleLoadMore = useCallback(async () => {
+        if (!hasMore || isLoadingMore) return;
+
+        const nextPage = page + 1;
+        setIsLoadingMore(true);
+        setError('');
+        try {
+            const { items, hasMore: moreAvailable } = await searchFoods({
+                query: debouncedTerm,
+                page: nextPage,
+                pageSize: PAGE_SIZE,
+            });
+            setFoods((prev) => [...prev, ...items]);
+            setPage(nextPage);
+            setHasMore(moreAvailable);
+        } catch (err) {
+            console.error('Loading more foods failed:', err);
+            setError('Could not load more foods. Try again.');
+        } finally {
+            setIsLoadingMore(false);
+        }
+    }, [debouncedTerm, hasMore, isLoadingMore, page]);
+
+    const setLoadMoreTarget = useCallback((node) => {
+        if (observerRef.current) {
+            observerRef.current.disconnect();
+        }
+
+        if (!node || isLoading || isLoadingMore || !hasMore) return;
+
+        observerRef.current = new IntersectionObserver(
+            (entries) => {
+                const [entry] = entries;
+                if (entry.isIntersecting) {
+                    handleLoadMore();
+                }
+            },
+            { rootMargin: '220px' }
+        );
+
+        observerRef.current.observe(node);
+    }, [handleLoadMore, hasMore, isLoading, isLoadingMore]);
+
+    useEffect(() => {
+        return () => {
+            if (observerRef.current) {
+                observerRef.current.disconnect();
+            }
+        };
+    }, []);
 
     const handleFoodClick = (food) => {
         setSelectedFood(food);
         setQuantity(1);
-        setMealType("Lunch"); // Default or logic to guess time of day
+        setMealType('Lunch');
     };
 
     const handleConfirm = () => {
@@ -42,7 +139,7 @@ const SearchLogPage = () => {
         };
 
         const mealData = {
-            image: null, // No image for search items
+            image: null,
             items: [itemData],
             totalCalories
         };
@@ -52,7 +149,6 @@ const SearchLogPage = () => {
 
     return (
         <div className="h-screen flex flex-col bg-[#060606]">
-            {/* Header */}
             <div className="p-6 pb-2">
                 <div className="flex items-center gap-4 mb-6">
                     <button
@@ -64,7 +160,6 @@ const SearchLogPage = () => {
                     <h1 className="text-2xl font-black">Search Food</h1>
                 </div>
 
-                {/* Search Bar */}
                 <div className="relative group mb-6">
                     <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-white/40 w-5 h-5 group-focus-within:text-primary transition-colors" />
                     <input
@@ -75,34 +170,12 @@ const SearchLogPage = () => {
                         className="w-full bg-white/5 border-2 border-transparent focus:border-primary/50 rounded-[2rem] py-4 pl-14 pr-6 font-bold text-lg outline-none transition-all"
                     />
                 </div>
-
-                {/* Categories */}
-                <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar">
-                    {searchCategories.map(category => (
-                        <button
-                            key={category}
-                            onClick={() => setSelectedCategory(category)}
-                            className={`
-                        px-5 py-2 whitespace-nowrap rounded-full font-bold text-sm transition-all
-                        ${selectedCategory === category
-                                    ? 'bg-white text-black'
-                                    : 'bg-white/5 text-white/60 hover:bg-white/10'}
-                    `}
-                        >
-                            {category}
-                        </button>
-                    ))}
-                </div>
             </div>
 
-            {/* Food List */}
             <div className="flex-1 overflow-y-auto px-6 pb-24 space-y-3">
-                {filteredFoods.map((food, index) => (
-                    <motion.div
+                {foods.map((food) => (
+                    <div
                         key={food.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
                         onClick={() => handleFoodClick(food)}
                         className="bg-white/5 border border-white/5 p-4 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-white/10 transition-colors group"
                     >
@@ -110,7 +183,7 @@ const SearchLogPage = () => {
                             <h3 className="font-bold text-lg leading-tight">{food.name}</h3>
                             <div className="flex items-center gap-2 mt-1">
                                 {food.brand && <span className="text-xs font-bold text-white/40 uppercase tracking-wider">{food.brand}</span>}
-                                <span className="text-xs text-white/40">•</span>
+                                <span className="text-xs text-white/40">-</span>
                                 <span className="text-xs text-secondary-light font-medium">{food.serving}</span>
                             </div>
                         </div>
@@ -124,31 +197,48 @@ const SearchLogPage = () => {
                                 <Plus className="w-5 h-5" />
                             </div>
                         </div>
-                    </motion.div>
+                    </div>
                 ))}
-                {filteredFoods.length === 0 && (
+
+                {isLoading && (
+                    <div className="text-center py-10 opacity-60">
+                        <p>Searching foods...</p>
+                    </div>
+                )}
+
+                {!isLoading && debouncedTerm.length < 2 && (
                     <div className="text-center py-20 opacity-40">
-                        <p>No foods found matching "{searchTerm}"</p>
+                        <p>Type at least 2 characters to search.</p>
+                    </div>
+                )}
+
+                {error && (
+                    <div className="text-center py-10 text-rose-300">
+                        <p>{error}</p>
+                    </div>
+                )}
+
+                {!isLoading && !error && debouncedTerm.length >= 2 && foods.length === 0 && (
+                    <div className="text-center py-20 opacity-40">
+                        <p>No foods found matching "{debouncedTerm}"</p>
+                    </div>
+                )}
+
+                {!isLoading && foods.length > 0 && hasMore && (
+                    <div ref={setLoadMoreTarget} className="h-10 flex items-center justify-center">
+                        {isLoadingMore ? <span className="text-sm text-white/50">Loading more...</span> : null}
                     </div>
                 )}
             </div>
 
-            {/* Add Details Modal / Bottom Sheet */}
             <AnimatePresence>
                 {selectedFood && (
                     <>
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
+                        <div
                             onClick={() => setSelectedFood(null)}
                             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
                         />
-                        <motion.div
-                            initial={{ y: "100%" }}
-                            animate={{ y: 0 }}
-                            exit={{ y: "100%" }}
-                            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                        <div
                             className="fixed bottom-0 left-0 right-0 bg-[#121212] border-t border-white/10 rounded-t-[2.5rem] p-8 z-50 max-w-2xl mx-auto"
                         >
                             <div className="flex justify-between items-start mb-8">
@@ -165,13 +255,13 @@ const SearchLogPage = () => {
                             </div>
 
                             <div className="space-y-6 mb-10">
-                                {/* Quantity Input */}
                                 <div>
                                     <label className="text-sm font-bold text-white/40 uppercase tracking-widest mb-3 block">Quantity</label>
                                     <div className="flex gap-4">
                                         <input
                                             type="number"
                                             step="0.25"
+                                            min="0.25"
                                             value={quantity}
                                             onChange={(e) => setQuantity(Number(e.target.value))}
                                             className="w-1/3 bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-2xl font-bold text-center outline-none focus:border-primary/50"
@@ -182,17 +272,16 @@ const SearchLogPage = () => {
                                     </div>
                                 </div>
 
-                                {/* Meal Type Selection */}
                                 <div>
                                     <label className="text-sm font-bold text-white/40 uppercase tracking-widest mb-3 block">Meal</label>
                                     <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                                        {["Breakfast", "Lunch", "Dinner", "Snack"].map(type => (
+                                        {['Breakfast', 'Lunch', 'Dinner', 'Snack'].map(type => (
                                             <button
                                                 key={type}
                                                 onClick={() => setMealType(type)}
                                                 className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm border transition-all ${mealType === type
-                                                        ? 'bg-primary/20 border-primary text-primary'
-                                                        : 'bg-white/5 border-transparent text-white/60 hover:bg-white/10'
+                                                    ? 'bg-primary/20 border-primary text-primary'
+                                                    : 'bg-white/5 border-transparent text-white/60 hover:bg-white/10'
                                                     }`}
                                             >
                                                 {type}
@@ -201,7 +290,6 @@ const SearchLogPage = () => {
                                     </div>
                                 </div>
 
-                                {/* Totals */}
                                 <div className="flex justify-between items-center pt-6 border-t border-white/10">
                                     <div>
                                         <span className="block text-sm text-white/40 font-bold uppercase">Total</span>
@@ -216,7 +304,7 @@ const SearchLogPage = () => {
                                     </button>
                                 </div>
                             </div>
-                        </motion.div>
+                        </div>
                     </>
                 )}
             </AnimatePresence>

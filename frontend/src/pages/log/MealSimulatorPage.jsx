@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, RefreshCw, Beaker } from 'lucide-react';
 import EnergyGraph from '../../components/eat-effect/EnergyGraph';
 import SimulationControls from '../../components/eat-effect/SimulationControls';
-import { getMealLog } from '../../data/mockMealStorage';
+import { getMealLog } from '../../services/mealService';
 import { predictMealEffect } from '../../data/mockPredictionService';
 
 const MealSimulatorPage = () => {

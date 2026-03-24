@@ -9,7 +9,7 @@ const PhotoUpload = ({ onImageSelect }) => {
         const file = e.target.files[0];
         if (file) {
             const imageUrl = URL.createObjectURL(file);
-            onImageSelect(imageUrl);
+            onImageSelect({ file, previewUrl: imageUrl });
         }
     };
 

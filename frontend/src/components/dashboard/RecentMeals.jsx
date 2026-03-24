@@ -4,7 +4,7 @@ import { Clock, Plus } from 'lucide-react';
 
 const RecentMeals = ({ meals }) => {
     return (
-        <div className="col-span-12 lg:col-span-6 bg-white/5 border border-white/10 rounded-[2.5rem] p-8">
+        <div className="col-span-12 lg:col-span-6 bg-white/5 border border-white/10 rounded-[2.5rem] p-8 h-full">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xl font-bold">Recent Meals</h3>
                 <button className="w-8 h-8 rounded-full border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">

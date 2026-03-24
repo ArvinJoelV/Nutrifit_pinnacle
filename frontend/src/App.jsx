@@ -18,6 +18,7 @@ import ConfirmMealPage from './pages/log/ConfirmMealPage';
 import MealDetailPage from './pages/log/MealDetailPage';
 import MealSimulatorPage from './pages/log/MealSimulatorPage';
 import SearchLogPage from './pages/log/SearchLogPage';
+import SettingsPage from './pages/SettingsPage';
 
 // Onboarding Pages
 import WelcomePage from './pages/onboarding/WelcomePage';
@@ -63,6 +64,12 @@ function App() {
             </AuthenticatedRoute>
           } />
 
+          <Route path="/log/search" element={
+            <AuthenticatedRoute>
+              <SearchLogPage />
+            </AuthenticatedRoute>
+          } />
+
           <Route path="/log/confirm" element={
             <AuthenticatedRoute>
               <ConfirmMealPage />
@@ -81,9 +88,15 @@ function App() {
             </AuthenticatedRoute>
           } />
 
-          <Route path="/log/search" element={
+          <Route path="/settings" element={
             <AuthenticatedRoute>
-              <SearchLogPage />
+              <SettingsPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/profile" element={
+            <AuthenticatedRoute>
+              <ProfilePage />
             </AuthenticatedRoute>
           } />
 
@@ -104,12 +117,6 @@ function App() {
           <Route path="/progress" element={
             <AuthenticatedRoute>
               <ProgressPage />
-            </AuthenticatedRoute>
-          } />
-
-          <Route path="/profile" element={
-            <AuthenticatedRoute>
-              <ProfilePage />
             </AuthenticatedRoute>
           } />
 

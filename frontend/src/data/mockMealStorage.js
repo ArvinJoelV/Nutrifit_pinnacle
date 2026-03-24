@@ -15,7 +15,6 @@ export const saveMealLog = (mealData) => {
     });
 };
 
-// ... existing code ...
 export const getMealLog = (id) => {
     return new Promise((resolve, reject) => {
         setTimeout(() => {
@@ -54,3 +53,24 @@ export const updateMealLog = (id, updatedData) => {
     });
 };
 
+export const getDailyStats = () => {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            const logs = JSON.parse(localStorage.getItem('meal_logs') || '[]');
+
+            // Filter for today (simplified check)
+            const today = new Date().toDateString();
+            const todaysLogs = logs.filter(log => new Date(log.timestamp).toDateString() === today);
+
+            const totals = todaysLogs.reduce((acc, log) => {
+                acc.calories += (log.totalCalories || 0);
+                acc.protein += (log.macros?.protein || 0);
+                acc.carbs += (log.macros?.carbs || 0);
+                acc.fat += (log.macros?.fat || 0);
+                return acc;
+            }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+            resolve({ totals, meals: todaysLogs });
+        }, 500);
+    });
+};

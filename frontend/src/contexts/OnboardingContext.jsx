@@ -12,6 +12,7 @@ export const useOnboarding = () => {
 
 export const OnboardingProvider = ({ children }) => {
     const [formData, setFormData] = useState({
+        firstName: '',
         age: '',
         gender: '',
         height: '',

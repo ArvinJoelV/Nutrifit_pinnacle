@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Food Nutrition Analysis</title>
+</head>
+<body>
+    <h1>Upload Food Image for Nutrition Analysis</h1>
+    <form method="post" action="/analyze" enctype="multipart/form-data">
+        <input type="file" name="image" required>
+        <button type="submit">Analyze</button>
+    </form>
+
+    {% if result %}
+        <h2>Gemini Response:</h2>
+        <pre>{{ result }}</pre>
+    {% endif %}
+</body>
+</html>
