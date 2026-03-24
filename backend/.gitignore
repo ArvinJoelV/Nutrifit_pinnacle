@@ -5,5 +5,3 @@ __pycache__/
 runs/
 static/uploads/
 static/cropped_mask/
-*.pt
-*.pkl
