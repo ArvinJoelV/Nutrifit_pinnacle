@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+node_modules/
+.env
+dist/
+build/
+backend/nutrifit
+runs/
+static/uploads/
+static/cropped_mask/
+nutrifit.db

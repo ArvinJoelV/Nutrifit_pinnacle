@@ -11,6 +11,7 @@ import google.generativeai as genai
 from detector import process_image_with_labels
 from dotenv import load_dotenv
 from fit_store import get_daily_metrics, get_tokens, init_db, save_daily_metrics, save_tokens
+from grok_timeline_service import generate_eat_effect_timeline
 from meal_recommendation_service import (
     DailyNutritionState,
     build_ingredient_pools,
@@ -102,6 +103,42 @@ def _parse_macro_block(payload, key):
         "carbs": _to_float(block.get("carbs")),
         "protein": _to_float(block.get("protein")),
         "fat": _to_float(block.get("fat")),
+    }
+
+
+def _normalize_meal_payload(payload):
+    meal = payload.get("meal") or {}
+    macros = meal.get("macros") or {}
+    items = meal.get("items") or []
+    normalized_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        multiplier = _to_float(item.get("multiplier") or 1) or 1.0
+        normalized_items.append(
+            {
+                "name": str(item.get("name") or "Food"),
+                "calories": _to_float(item.get("calories")),
+                "protein": _to_float(item.get("protein")),
+                "carbs": _to_float(item.get("carbs")),
+                "fat": _to_float(item.get("fat")),
+                "multiplier": multiplier,
+            }
+        )
+
+    return {
+        "id": str(meal.get("id") or ""),
+        "type": str(meal.get("type") or "Meal"),
+        "time": str(meal.get("time") or ""),
+        "timestamp": str(meal.get("timestamp") or ""),
+        "totalCalories": _to_float(meal.get("totalCalories") or macros.get("calories")),
+        "macros": {
+            "calories": _to_float(macros.get("calories") or meal.get("totalCalories")),
+            "protein": _to_float(macros.get("protein")),
+            "carbs": _to_float(macros.get("carbs")),
+            "fat": _to_float(macros.get("fat")),
+        },
+        "items": normalized_items,
     }
 
 
@@ -287,6 +324,29 @@ def adjust_meal_plan():
             "remaining_macros": state.get_remaining_macros(),
             "next_meal_targets": next_meal_targets,
             "recommended_meals": recommended_meals,
+        }
+    )
+
+
+@app.route("/api/eat-effect-timeline", methods=["POST"])
+def eat_effect_timeline():
+    payload = request.get_json(silent=True) or {}
+    meal = _normalize_meal_payload(payload)
+
+    if meal["totalCalories"] <= 0:
+        return _json_error("meal.totalCalories or meal.macros.calories is required", 400)
+
+    try:
+        timeline, debug = generate_eat_effect_timeline(meal)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    return jsonify(
+        {
+            "ok": True,
+            "mealId": meal["id"],
+            "timeline": timeline,
+            "debug": debug,
         }
     )
 

@@ -1,6 +1,16 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Flame } from 'lucide-react';
+import { Flame, Footprints, Activity } from 'lucide-react';
+
+const StatChip = ({ icon: Icon, value, label, iconClassName = '' }) => (
+    <div className="flex items-center gap-3 bg-black/20 backdrop-blur-md px-5 py-3 rounded-full border border-white/10">
+        <Icon className={`w-5 h-5 ${iconClassName}`} />
+        <div className="flex flex-col">
+            <span className="text-xl font-black leading-none">{value}</span>
+            <span className="text-[10px] uppercase font-bold tracking-widest text-white/50">{label}</span>
+        </div>
+    </div>
+);
 
 const WelcomeCard = ({ user }) => {
     return (
@@ -20,12 +30,10 @@ const WelcomeCard = ({ user }) => {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-3 bg-black/20 backdrop-blur-md px-5 py-3 rounded-full border border-white/10">
-                    <Flame className="w-6 h-6 text-orange-400 fill-orange-400" />
-                    <div className="flex flex-col">
-                        <span className="text-xl font-black leading-none">{user.streak}</span>
-                        <span className="text-[10px] uppercase font-bold tracking-widest text-white/50">Day Streak</span>
-                    </div>
+                <div className="flex flex-wrap items-center gap-3">
+                    <StatChip icon={Flame} value={user.streak} label="Day Streak" iconClassName="text-orange-400 fill-orange-400" />
+                    <StatChip icon={Footprints} value={user.steps || '0'} label="Steps" iconClassName="text-emerald-300" />
+                    <StatChip icon={Activity} value={user.caloriesBurned || '0'} label="Calories" iconClassName="text-amber-200" />
                 </div>
             </div>
 

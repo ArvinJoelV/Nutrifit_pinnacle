@@ -10,11 +10,11 @@ import pandas as pd
 
 DEFAULT_NUTRITION_DATASET = os.getenv(
     "INDB_NUTRITION_DATASET",
-    r"c:\Users\Lenovo\Downloads\Anuvaad_INDB_2024.11.xlsx",
+    r"E:\Projects\Nutrifit_pinnacle\backend\Anuvaad_INDB_2024.11.xlsx",
 )
 DEFAULT_INGREDIENT_CATEGORY_DATASET = os.getenv(
     "INGREDIENT_CATEGORY_DATASET",
-    r"c:\Users\Lenovo\Downloads\ingredient_category_dataset_indian.csv",
+    r"E:\Projects\Nutrifit_pinnacle\backend\ingredient_category_dataset_indian.csv",
 )
 
 
