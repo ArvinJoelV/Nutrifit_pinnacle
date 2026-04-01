@@ -3,14 +3,14 @@ import {
     collection,
     addDoc,
     query,
-    where,
     getDocs,
     doc,
     getDoc,
     deleteDoc,
     updateDoc,
     orderBy,
-    limit
+    limit,
+    setDoc
 } from 'firebase/firestore';
 
 // Helper to get current user ID
@@ -24,7 +24,32 @@ const getUserId = () => {
 };
 
 // Formatting helpers
-const formatDate = (date) => date.toISOString().split('T')[0]; // YYYY-MM-DD
+const formatUtcDate = (date) => date.toISOString().split('T')[0];
+const formatLocalDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const ensureUserDocumentExists = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+        throw new Error("User not authenticated. Please log in again.");
+    }
+
+    await setDoc(doc(db, 'users', user.uid), {
+        email: user.email || null,
+        lastLogin: new Date().toISOString(),
+    }, { merge: true });
+};
+
+const normalizeFirestoreError = (error) => {
+    if (error?.code === 'permission-denied') {
+        return new Error('Firestore denied the meal save. Check your Firestore rules for users/{uid}/mealLogs.');
+    }
+    return error;
+};
 
 /**
  * Save a new meal log to Firestore
@@ -32,12 +57,14 @@ const formatDate = (date) => date.toISOString().split('T')[0]; // YYYY-MM-DD
 export const saveMealLog = async (mealData) => {
     try {
         const userId = getUserId();
+        await ensureUserDocumentExists();
         const mealRef = collection(db, 'users', userId, 'mealLogs');
 
         const newLog = {
             ...mealData,
             userId,
-            date: formatDate(new Date()), // For easy daily querying
+            date: formatUtcDate(new Date()),
+            localDate: formatLocalDate(new Date()),
             timestamp: new Date().toISOString(), // For sorting
             createdAt: new Date().toISOString()
         };
@@ -46,7 +73,7 @@ export const saveMealLog = async (mealData) => {
         return { id: docRef.id, ...newLog };
     } catch (error) {
         console.error("Error adding meal log: ", error);
-        throw error;
+        throw normalizeFirestoreError(error);
     }
 };
 
@@ -56,13 +83,15 @@ export const saveMealLog = async (mealData) => {
 export const getDailyStats = async (date = new Date()) => {
     try {
         const userId = getUserId();
-        const dateStr = formatDate(date);
+        const localDate = formatLocalDate(date);
+        const utcDate = formatUtcDate(date);
 
         const mealRef = collection(db, 'users', userId, 'mealLogs');
-        const q = query(mealRef, where("date", "==", dateStr), orderBy("timestamp", "desc"));
+        const q = query(mealRef, orderBy("createdAt", "desc"), limit(25));
 
         const querySnapshot = await getDocs(q);
-        const meals = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const allMeals = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const meals = allMeals.filter((meal) => meal.localDate === localDate || meal.date === localDate || meal.date === utcDate);
 
         // Aggregate Totals
         const totals = meals.reduce((acc, meal) => ({
@@ -72,7 +101,7 @@ export const getDailyStats = async (date = new Date()) => {
             fat: acc.fat + (meal.macros?.fat || 0),
         }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
-        return { totals, meals };
+        return { totals, meals: allMeals };
     } catch (error) {
         console.error("Error getting daily stats: ", error);
         // Return empty structure on error/no auth to prevent crash
@@ -96,7 +125,7 @@ export const getMealLog = async (id) => {
         }
     } catch (error) {
         console.error("Error getting meal log: ", error);
-        throw error;
+        throw normalizeFirestoreError(error);
     }
 };
 
@@ -111,7 +140,7 @@ export const deleteMealLog = async (id) => {
         return true;
     } catch (error) {
         console.error("Error deleting meal log: ", error);
-        throw error;
+        throw normalizeFirestoreError(error);
     }
 };
 
@@ -126,6 +155,6 @@ export const updateMealLog = async (id, updatedData) => {
         return { id, ...updatedData };
     } catch (error) {
         console.error("Error updating meal log: ", error);
-        throw error;
+        throw normalizeFirestoreError(error);
     }
 };

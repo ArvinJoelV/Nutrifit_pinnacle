@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Home, Utensils, BarChart2, Activity, TrendingUp, User, LogOut } from 'lucide-react';
+import { Activity, BarChart2, Home, LogOut, Settings, Soup, TrendingUp, User, Utensils } from 'lucide-react';
 import { auth } from '../../config/firebase';
 import { signOut } from 'firebase/auth';
 
@@ -16,10 +16,9 @@ const Sidebar = () => {
     const navItems = [
         { name: 'Home', path: '/home', icon: Home },
         { name: 'Log Food', path: '/log', icon: Utensils },
-        { name: 'Insights', path: '/insights', icon: BarChart2 },
-        { name: 'Eat → Effect', path: '/eat-effect', icon: Activity },
-        { name: 'Progress', path: '/progress', icon: TrendingUp },
+        { name: 'Meal Plan', path: '/meal-plan', icon: Soup },
         { name: 'Profile', path: '/profile', icon: User },
+        { name: 'Settings', path: '/settings', icon: Settings },
     ];
 
     return (
@@ -27,7 +26,7 @@ const Sidebar = () => {
             <div className="p-8">
                 <div className="flex items-center gap-3 mb-10">
                     <div className="w-10 h-10 bg-linear-to-br from-primary-light to-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-                        <span className="text-xl">🌱</span>
+                        <span className="text-xl">NF</span>
                     </div>
                     <span className="text-2xl font-black tracking-tighter bg-linear-to-r from-white to-white/60 bg-clip-text text-transparent">
                         NutriFit

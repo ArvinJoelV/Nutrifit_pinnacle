@@ -1,44 +1,51 @@
-# Food-calories-nutrients-detection
+# Backend
 
-AI-powered application that helps users understand what they’re eating — simply by uploading an image of their plate.
+This Flask backend supports two main capabilities:
 
-It detects and analyzes food items in real-time, calculates total calories and nutrients, compares the intake with the user’s health goals.
+- meal image analysis for calorie and macro estimation
+- Google Fit activity ingestion for later dietary analysis
 
-Whether you're tracking your fitness, managing weight, or just curious about your meal — this app gives you full insight and control, all in an engaging and interactive experience.
+## Google Fit integration
 
-✨ KEY FEATURES
+The backend exposes an OAuth flow that allows a user to connect Google Fit and sync:
 
-✔️ Upload food image 
+- steps
+- calories burned
+- distance
+- heart rate
 
-✔️ Detect food items on the plate using YOLOv11
+Synced activity is stored in a local SQLite database at `backend/nutrifit.db`.
 
-✔️ Segment each item with precision using SAM2
+## Required env vars
 
-✔️ Analyze nutrition (calories, macros) via Gemini API
+Set these in `backend/.env`:
 
-✔️ Visual UI animations — floating food items with real-time data
+```bash
+GOOGLE_FIT_CLIENT_ID=
+GOOGLE_FIT_CLIENT_SECRET=
+GOOGLE_FIT_REDIRECT_URI=http://localhost:9510/api/google-fit/callback
+GOOGLE_FIT_FRONTEND_REDIRECT=http://localhost:5173/settings
+GOOGLE_FIT_STATE_SECRET=change-me
+```
 
-✔️ Compare intake vs. target using your personal calorie goals
+## API endpoints
 
-✔️ LLM-based suggestions:
+- `POST /api/google-fit/connect`
+  Body: `{"userId":"your-user-id"}`
+  Returns the Google OAuth URL to open from the frontend.
 
-  • Exercises if you're over your limit
-  
-  • Food/snacks if you're under
-  
-✔️ Interactive calorie adjustments based on actual physical activity
+- `GET /api/google-fit/callback`
+  Google redirects here after consent. The backend exchanges the auth code and stores tokens.
 
- # Food Calorie Detection
- 
-https://github.com/user-attachments/assets/f19d8ccc-d8ce-477c-8e6e-811fa42cbec3
+- `POST /api/google-fit/sync`
+  Body: `{"userId":"your-user-id","days":7}`
+  Fetches activity from Google Fit and stores daily aggregates in SQLite.
 
-🛠️ TECH STACK
+- `GET /api/google-fit/activity?userId=your-user-id&days=7`
+  Returns stored daily activity rows from the database.
 
-🍱 Food Detection: YOLOv11 (custom-trained)
+## Notes
 
-✂️ Image Segmentation: SAM2 (Segment Anything Model)
-
-🎨 Frontend: HTML5, CSS3, JavaScript (with animations)
-
-🔗 Backend: Flask
-
+- Google Fit access is based on OAuth 2.0 scopes for activity, location, and body data.
+- Tokens and daily metrics are stored server-side for later recommendation logic.
+- `nutrifit.db` is ignored by Git.

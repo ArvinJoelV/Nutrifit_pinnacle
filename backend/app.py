@@ -3,11 +3,36 @@ import os
 import re
 import uuid
 import ast
-from flask import Flask, jsonify, request
+from datetime import datetime, timedelta, timezone
+from flask import Flask, jsonify, redirect, request
+from flask_cors import CORS
 from PIL import Image
 import google.generativeai as genai
 from detector import process_image_with_labels
 from dotenv import load_dotenv
+from fit_store import get_daily_metrics, get_tokens, init_db, save_daily_metrics, save_tokens
+from meal_recommendation_service import (
+    DailyNutritionState,
+    build_ingredient_pools,
+    generate_adjusted_meal_plan,
+    generate_daily_meal_plan,
+    load_ingredient_categories,
+    load_nutrition_dataset,
+    redistribute_macros,
+    split_daily_macros_into_meal_targets,
+)
+from google_fit_service import (
+    GoogleFitConfigError,
+    build_auth_url,
+    ensure_valid_tokens,
+    exchange_code_for_tokens,
+    fetch_daily_activity,
+    get_fit_timezone,
+    get_fit_timezone_name,
+    get_frontend_redirect,
+    is_google_fit_configured,
+    parse_state,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
@@ -18,23 +43,252 @@ if GOOGLE_API_KEY:
 model = genai.GenerativeModel("gemini-2.0-flash") if GOOGLE_API_KEY else None
 
 app = Flask(__name__)
+CORS(app)
 app.config["UPLOAD_FOLDER"] = "static/uploads"
 app.config["CROPPED_FOLDER"] = "static/cropped_mask"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["CROPPED_FOLDER"], exist_ok=True)
+init_db()
 
 
-@app.after_request
-def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = os.getenv("ALLOWED_ORIGIN", "*")
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    return response
+
 
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    return jsonify({"ok": True, "modelReady": bool(model)})
+    return jsonify(
+        {
+            "ok": True,
+            "modelReady": bool(model),
+            "googleFitReady": is_google_fit_configured(),
+            "googleFitTimezone": get_fit_timezone_name(),
+        }
+    )
+
+
+def _json_error(message, status=400):
+    return jsonify({"error": message}), status
+
+
+def _parse_days(default=7):
+    value = request.args.get("days") if request.method == "GET" else (request.get_json(silent=True) or {}).get("days")
+    try:
+        return max(1, min(int(value or default), 30))
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_user_id():
+    if request.method == "GET":
+        return (request.args.get("userId") or "").strip()
+    payload = request.get_json(silent=True) or {}
+    return str(payload.get("userId") or "").strip()
+
+
+def _parse_daily_macros(payload):
+    daily_macros = payload.get("daily_macros") or {}
+    required = ["calories", "carbs", "protein", "fat"]
+    missing = [key for key in required if key not in daily_macros]
+    if missing:
+        raise ValueError(f"daily_macros is missing required keys: {missing}")
+
+    return {key: _to_float(daily_macros.get(key)) for key in required}
+
+
+def _parse_macro_block(payload, key):
+    block = payload.get(key) or {}
+    return {
+        "calories": _to_float(block.get("calories")),
+        "carbs": _to_float(block.get("carbs")),
+        "protein": _to_float(block.get("protein")),
+        "fat": _to_float(block.get("fat")),
+    }
+
+
+@app.route("/api/google-fit/connect", methods=["POST"])
+def google_fit_connect():
+
+    user_id = _parse_user_id()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    try:
+        return jsonify({"authUrl": build_auth_url(user_id)})
+    except GoogleFitConfigError as exc:
+        return _json_error(str(exc), 500)
+
+
+@app.route("/api/google-fit/callback", methods=["GET"])
+def google_fit_callback():
+    frontend_redirect = get_frontend_redirect()
+    error = request.args.get("error")
+    if error:
+        return redirect(f"{frontend_redirect}?googleFit=error&reason={error}")
+
+    code = request.args.get("code")
+    state = request.args.get("state")
+    if not code or not state:
+        return _json_error("Missing OAuth code or state", 400)
+
+    try:
+        state_payload = parse_state(state)
+        user_id = str(state_payload["user_id"])
+        tokens = exchange_code_for_tokens(code)
+        save_tokens(user_id, tokens)
+    except Exception as exc:
+        return redirect(f"{frontend_redirect}?googleFit=error&reason={str(exc)}")
+
+    return redirect(f"{frontend_redirect}?googleFit=connected&userId={user_id}")
+
+
+@app.route("/api/google-fit/sync", methods=["POST"])
+def google_fit_sync():
+
+    user_id = _parse_user_id()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    try:
+        tokens = get_tokens(user_id)
+        valid_tokens = ensure_valid_tokens(tokens)
+        if valid_tokens.get("access_token") != tokens.get("access_token") or valid_tokens.get("expires_at") != tokens.get("expires_at"):
+            save_tokens(user_id, valid_tokens)
+        daily_rows = fetch_daily_activity(valid_tokens["access_token"], days=_parse_days())
+        save_daily_metrics(user_id, daily_rows)
+        return jsonify({"ok": True, "userId": user_id, "daysSynced": len(daily_rows), "items": daily_rows})
+    except GoogleFitConfigError as exc:
+        return _json_error(str(exc), 500)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+
+@app.route("/api/google-fit/activity", methods=["GET"])
+def google_fit_activity():
+    user_id = _parse_user_id()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    days = _parse_days(default=1)
+    live = (request.args.get("live") or "true").strip().lower() not in {"0", "false", "no"}
+    tz = get_fit_timezone()
+    rows = []
+
+    if live:
+        try:
+            tokens = get_tokens(user_id)
+            valid_tokens = ensure_valid_tokens(tokens)
+            if valid_tokens.get("access_token") != tokens.get("access_token") or valid_tokens.get("expires_at") != tokens.get("expires_at"):
+                save_tokens(user_id, valid_tokens)
+            daily_rows = fetch_daily_activity(valid_tokens["access_token"], days=days)
+            save_daily_metrics(user_id, daily_rows)
+            rows = daily_rows
+        except GoogleFitConfigError as exc:
+            return _json_error(str(exc), 500)
+        except Exception as exc:
+            return _json_error(str(exc), 500)
+
+    if not rows:
+        end_date = datetime.now(tz).date()
+        start_date = end_date - timedelta(days=days - 1)
+        rows = get_daily_metrics(user_id, start_date.isoformat(), end_date.isoformat())
+    else:
+        start_date = min(datetime.fromisoformat(row["activity_date"]).date() for row in rows)
+        end_date = max(datetime.fromisoformat(row["activity_date"]).date() for row in rows)
+
+    return jsonify(
+        {
+            "ok": True,
+            "userId": user_id,
+            "days": days,
+            "live": live,
+            "timezone": get_fit_timezone_name(),
+            "startDate": start_date.isoformat(),
+            "endDate": end_date.isoformat(),
+            "items": rows,
+        }
+    )
+
+
+@app.route("/api/generate-meal-plan", methods=["POST"])
+def generate_meal_plan():
+
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        daily_macros = _parse_daily_macros(payload)
+        top_n = max(1, min(int(payload.get("top_n", 3) or 3), 10))
+        nutrition_df = load_nutrition_dataset(payload.get("nutrition_dataset_path"))
+        ingredient_df = load_ingredient_categories(payload.get("ingredient_category_dataset_path"))
+        ingredient_pools = build_ingredient_pools(ingredient_df)
+        meal_targets = split_daily_macros_into_meal_targets(daily_macros)
+        meal_plan = generate_daily_meal_plan(
+            meal_targets=meal_targets,
+            ingredient_pools=ingredient_pools,
+            nutrition_df=nutrition_df,
+            top_n=top_n,
+        )
+    except FileNotFoundError as exc:
+        return _json_error(str(exc), 404)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    return jsonify(
+        {
+            "daily_macros": daily_macros,
+            "meal_targets": meal_targets,
+            "meal_plan": meal_plan,
+        }
+    )
+
+
+@app.route("/api/adjust-meal-plan", methods=["POST"])
+def adjust_meal_plan():
+
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        daily_macros = _parse_daily_macros(payload)
+        consumed_macros = _parse_macro_block(payload, "consumed_macros")
+        completed_meals = [str(meal).strip().lower() for meal in (payload.get("completed_meals") or []) if str(meal).strip()]
+        top_n = max(1, min(int(payload.get("top_n", 1) or 1), 10))
+
+        nutrition_df = load_nutrition_dataset(payload.get("nutrition_dataset_path"))
+        ingredient_df = load_ingredient_categories(payload.get("ingredient_category_dataset_path"))
+        ingredient_pools = build_ingredient_pools(ingredient_df)
+
+        state = DailyNutritionState()
+        state.initialize_day(daily_macros)
+        state.consumed = consumed_macros
+        state.meals_completed = completed_meals
+        state.remaining_meal_windows = [
+            meal for meal in ["breakfast", "lunch", "dinner", "snack"] if meal not in completed_meals
+        ]
+        state.calculate_remaining()
+
+        next_meal_targets = redistribute_macros(state.get_remaining_macros(), state.get_remaining_meals())
+        recommended_meals = generate_adjusted_meal_plan(
+            nutrition_state=state,
+            ingredient_pools=ingredient_pools,
+            nutrition_df=nutrition_df,
+            top_n=top_n,
+        )
+    except FileNotFoundError as exc:
+        return _json_error(str(exc), 404)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    return jsonify(
+        {
+            "nutrition_state": state.to_dict(),
+            "remaining_macros": state.get_remaining_macros(),
+            "next_meal_targets": next_meal_targets,
+            "recommended_meals": recommended_meals,
+        }
+    )
 
 
 def _extract_json_object(text):
@@ -98,10 +352,8 @@ def _fallback_from_label(label):
     return {"name": label.replace("-", " ").replace("_", " ").title() or "Detected Food", "calories": 140, "protein": 6, "carbs": 16, "fat": 5}
 
 
-@app.route("/api/analyze-meal", methods=["POST", "OPTIONS"])
+@app.route("/api/analyze-meal", methods=["POST"])
 def analyze_meal():
-    if request.method == "OPTIONS":
-        return ("", 204)
 
     if "image" not in request.files or request.files["image"].filename == "":
         return jsonify({"error": "No image uploaded"}), 400

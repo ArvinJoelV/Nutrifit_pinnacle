@@ -4,7 +4,7 @@ import OnboardingLayout from '../../components/onboarding/OnboardingLayout';
 import { useOnboarding } from '../../contexts/OnboardingContext';
 import { auth, db } from '../../config/firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { motion } from 'framer-motion';
+import { calculateDiabetesNutritionPlan } from '../../services/userService';
 
 const ProcessingPage = () => {
     const navigate = useNavigate();
@@ -14,39 +14,12 @@ const ProcessingPage = () => {
 
     useEffect(() => {
         const processData = async () => {
-            // 1. Calculate BMR (Mifflin-St Jeor)
-            const weight = parseFloat(formData.weight);
-            const height = parseFloat(formData.height);
-            const age = parseInt(formData.age);
-            const isMale = formData.gender === 'male';
-
-            let bmr = (10 * weight) + (6.25 * height) - (5 * age);
-            bmr = isMale ? bmr + 5 : bmr - 161;
-
-            // 2. Activity Multiplier
-            const multipliers = {
-                sedentary: 1.2,
-                light: 1.375,
-                moderate: 1.55,
-                active: 1.725,
-                athlete: 1.9
-            };
-            const multiplier = multipliers[formData.activity_level] || 1.2;
-            const maintenance = Math.round(bmr * multiplier);
-
-            // 3. Goal Adjustment
-            const adjustments = {
-                lose: -400,
-                maintain: 0,
-                gain: 300
-            };
-            const adjustment = adjustments[formData.goal] || 0;
-            const target = maintenance + adjustment;
+            const plan = calculateDiabetesNutritionPlan(formData, 0);
 
             // Update context state
             updateFormData({
-                maintenance_calories: maintenance,
-                target_calories: target
+                maintenance_calories: plan.baseline_tdee,
+                target_calories: plan.target_calories
             });
 
             // Simulation steps for UX
@@ -68,8 +41,18 @@ const ProcessingPage = () => {
             if (user) {
                 await setDoc(doc(db, 'users', user.uid), {
                     ...formData,
-                    maintenance_calories: maintenance,
-                    target_calories: target,
+                    maintenance_calories: plan.baseline_tdee,
+                    target_calories: plan.target_calories,
+                    dynamic_tdee: plan.dynamic_tdee,
+                    carb_ratio: plan.carb_ratio,
+                    carb_target_g: plan.carbs_g,
+                    protein_target_g: plan.protein_g,
+                    fat_target_g: plan.fat_g,
+                    fiber_target_g: plan.fiber_g,
+                    sodium_limit_mg: plan.sodium_limit_mg,
+                    sat_fat_limit_g: plan.sat_fat_limit_g,
+                    added_sugar_limit_g: plan.added_sugar_limit_g,
+                    meal_distribution: plan.meal_distribution,
                     profile_complete: true,
                     updated_at: new Date().toISOString()
                 }, { merge: true });
@@ -86,30 +69,17 @@ const ProcessingPage = () => {
             <div className="flex flex-col items-center justify-center gap-12 py-20">
                 <div className="relative w-48 h-48">
                     {/* Animated Spinner Rings */}
-                    <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                        className="absolute inset-0 border-4 border-dashed border-primary-light/30 rounded-full"
-                    />
-                    <motion.div
-                        animate={{ rotate: -360 }}
-                        transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
-                        className="absolute inset-4 border-2 border-dashed border-secondary-light/30 rounded-full"
-                    />
+                    <div className="absolute inset-0 border-4 border-dashed border-primary-light/30 rounded-full animate-spin" />
+                    <div className="absolute inset-4 border-2 border-dashed border-secondary-light/30 rounded-full animate-spin [animation-direction:reverse] [animation-duration:5s]" />
                     <div className="absolute inset-0 flex items-center justify-center">
                         <span className="text-4xl font-black text-white">{progress}%</span>
                     </div>
                 </div>
 
                 <div className="text-center space-y-4">
-                    <motion.h3
-                        key={status}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="text-2xl font-bold tracking-tight text-white/80"
-                    >
+                    <h3 key={status} className="text-2xl font-bold tracking-tight text-white/80">
                         {status}
-                    </motion.h3>
+                    </h3>
                     <p className="text-white/30 text-sm font-medium uppercase tracking-[0.2em]">Please stay on this page</p>
                 </div>
             </div>

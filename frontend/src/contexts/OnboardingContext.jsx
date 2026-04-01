@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import React, { createContext, useContext, useState } from 'react';
 
 const OnboardingContext = createContext();
 
@@ -19,7 +20,18 @@ export const OnboardingProvider = ({ children }) => {
         weight: '',
         activity_level: '',
         goal: '',
+        diabetes_type: 'type2',
+        hba1c: '',
+        fasting_glucose: '',
+        post_meal_glucose: '',
+        hypoglycemia_history: 'no',
+        medication_type: '',
+        insulin_usage: 'no',
+        diabetes_duration_years: '',
         diet_preference: '',
+        food_allergies: '',
+        meal_schedule: 'standard',
+        alcohol_consumption: 'none',
         sleep_hours: '',
         stress_level: 0,
         medical_condition: '',

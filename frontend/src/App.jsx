@@ -7,12 +7,14 @@ import RedirectHandler from './components/RedirectHandler';
 import { OnboardingProvider } from './contexts/OnboardingContext';
 
 import LogFoodPage from './pages/LogFoodPage';
+import LogMethodPage from './pages/LogMethodPage';
 import InsightsPage from './pages/InsightsPage';
 import EatEffectPage from './pages/EatEffectPage';
 import ProgressPage from './pages/ProgressPage';
 import ProfilePage from './pages/ProfilePage';
 import AppLayout from './components/layout/AppLayout';
 import PhotoLogPage from './pages/log/PhotoLogPage';
+import MealPlanPage from './pages/MealPlanPage';
 
 import ConfirmMealPage from './pages/log/ConfirmMealPage';
 import MealDetailPage from './pages/log/MealDetailPage';
@@ -58,6 +60,12 @@ function App() {
             </AuthenticatedRoute>
           } />
 
+          <Route path="/log/method" element={
+            <AuthenticatedRoute>
+              <LogMethodPage />
+            </AuthenticatedRoute>
+          } />
+
           <Route path="/log/photo" element={
             <AuthenticatedRoute>
               <PhotoLogPage />
@@ -97,6 +105,12 @@ function App() {
           <Route path="/profile" element={
             <AuthenticatedRoute>
               <ProfilePage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/meal-plan" element={
+            <AuthenticatedRoute>
+              <MealPlanPage />
             </AuthenticatedRoute>
           } />
 

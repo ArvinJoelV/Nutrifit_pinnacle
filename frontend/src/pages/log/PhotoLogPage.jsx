@@ -1,20 +1,98 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Check, RefreshCw } from 'lucide-react';
 import PhotoUpload from '../../components/log/PhotoUpload';
 import FoodDetectionPreview from '../../components/log/FoodDetectionPreview';
 import PortionEditor from '../../components/log/PortionEditor';
 import { analyzeMealImage } from '../../services/mealAnalysisService';
+import { getDailyStats } from '../../services/mealService';
+import { getUserProfile, calculateDiabetesNutritionPlan } from '../../services/userService';
+import { getGoogleFitActivity } from '../../services/googleFitService';
+import { generateAdjustedMealPlan } from '../../services/mealPlanService';
+import { useOnboarding } from '../../contexts/OnboardingContext';
 
 const PhotoLogPage = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [step, setStep] = useState('upload'); // upload, analyzing, review
     const [image, setImage] = useState(null);
     const [imageFile, setImageFile] = useState(null);
     const [segmentedImage, setSegmentedImage] = useState(null);
     const [analysisError, setAnalysisError] = useState('');
     const [detectedItems, setDetectedItems] = useState([]);
+
+    const { formData } = useOnboarding();
+    const [isLoadingTargets, setIsLoadingTargets] = useState(true);
+    const [availableMeals, setAvailableMeals] = useState(['Breakfast', 'Lunch', 'Dinner', 'Snack']);
+    const [upcomingTargets, setUpcomingTargets] = useState({});
+    const initialMealType = location.state?.mealType || 'Snack';
+    const [selectedMealType, setSelectedMealType] = useState(initialMealType);
+
+    useEffect(() => {
+        let isMounted = true;
+        const loadTargets = async () => {
+            setIsLoadingTargets(true);
+            try {
+                const [stats, profile, activity] = await Promise.all([
+                    getDailyStats(),
+                    getUserProfile(),
+                    getGoogleFitActivity(7).catch(() => ({ items: [] }))
+                ]);
+                if (!isMounted) return;
+
+                const today = new Date().toLocaleDateString('en-CA');
+                const todaysMeals = (stats.meals || []).filter(m => m.localDate === today || m.date === today);
+
+                const mealOrder = ['breakfast', 'lunch', 'dinner', 'snack'];
+                const buckets = mealOrder.reduce((acc, m) => ({ ...acc, [m]: 0 }), {});
+                todaysMeals.forEach((meal) => {
+                    const key = String(meal.type || meal.items?.[0]?.mealType || '').trim().toLowerCase();
+                    const normalized = key.startsWith('break') ? 'breakfast' : key.startsWith('lunch') ? 'lunch' : key.startsWith('din') ? 'dinner' : key.startsWith('snack') ? 'snack' : key;
+                    if (buckets[normalized] !== undefined) buckets[normalized] += Number(meal.totalCalories || 0);
+                });
+
+                const completed = mealOrder.filter(m => buckets[m] > 0);
+                const remaining = mealOrder.filter(m => buckets[m] === 0);
+
+                const resolvedProfile = profile || formData || {};
+                const latestActivity = activity.items?.sort((a, b) => String(b.activity_date).localeCompare(String(a.activity_date))).find(r => r.activity_date === today) || activity.items?.[0] || null;
+
+                const plan = calculateDiabetesNutritionPlan(resolvedProfile, Number(latestActivity?.calories_burned || 0));
+
+                const adjusted = await generateAdjustedMealPlan(
+                    {
+                        dailyMacros: { calories: plan.target_calories, carbs: plan.carbs_g, protein: plan.protein_g, fat: plan.fat_g },
+                        consumedMacros: stats.totals,
+                        completedMeals: completed
+                    },
+                    { topN: 1 }
+                );
+
+                if (!isMounted) return;
+                setUpcomingTargets(adjusted.next_meal_targets || {});
+
+                const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' };
+                const remainingLabels = remaining.map(m => mealLabels[m]);
+
+                if (remainingLabels.length > 0) {
+                    setAvailableMeals(remainingLabels);
+                    if (!remainingLabels.includes(initialMealType)) {
+                        setSelectedMealType(remainingLabels[0]);
+                    }
+                } else {
+                    setAvailableMeals(['Snack']);
+                    setSelectedMealType('Snack');
+                }
+            } catch (e) {
+                console.error("Failed to load targets", e);
+            } finally {
+                if (isMounted) setIsLoadingTargets(false);
+            }
+        };
+        loadTargets();
+        return () => { isMounted = false; };
+    }, [formData, initialMealType]);
 
     const handleImageSelect = ({ file, previewUrl }) => {
         if (image && image.startsWith('blob:')) {
@@ -38,7 +116,7 @@ const PhotoLogPage = () => {
             try {
                 const result = await analyzeMealImage(imageFile, { signal: controller.signal });
                 if (isCancelled) return;
-                setDetectedItems(result.items);
+                setDetectedItems(result.items.map((item) => ({ ...item, mealType: selectedMealType })));
                 setSegmentedImage(result.segmentedImage || null);
                 setStep('review');
             } catch (error) {
@@ -75,7 +153,7 @@ const PhotoLogPage = () => {
         const finalMealData = {
             image,
             segmentedImage,
-            items: detectedItems,
+            items: detectedItems.map((item) => ({ ...item, mealType: item.mealType || selectedMealType })),
             totalCalories: Math.round(totalCalories)
         };
 
@@ -121,6 +199,45 @@ const PhotoLogPage = () => {
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="flex-1 flex flex-col justify-center"
                     >
+                        <div className="mb-8 w-full max-w-md mx-auto">
+                            <h3 className="text-lg font-bold mb-4 text-center">Logging For</h3>
+                            <div className="flex gap-2 overflow-x-auto pb-2 px-2 custom-scrollbar justify-center">
+                                {availableMeals.map(type => (
+                                    <button
+                                        key={type}
+                                        onClick={() => setSelectedMealType(type)}
+                                        className={`px-5 py-3 rounded-2xl font-bold whitespace-nowrap transition-colors border ${selectedMealType === type
+                                                ? 'bg-primary/20 border-primary text-primary'
+                                                : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+                                            }`}
+                                    >
+                                        {type}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {!isLoadingTargets && upcomingTargets[selectedMealType.toLowerCase()] && (
+                                <div className="mt-4 grid grid-cols-4 gap-2">
+                                    <div className="bg-black/20 border border-white/5 rounded-xl p-3 text-center">
+                                        <div className="text-[9px] uppercase tracking-wider text-white/30 font-bold mb-1">Cals</div>
+                                        <div className="font-black text-sm">{Math.round(upcomingTargets[selectedMealType.toLowerCase()].calories)}</div>
+                                    </div>
+                                    <div className="bg-black/20 border border-white/5 rounded-xl p-3 text-center">
+                                        <div className="text-[9px] uppercase tracking-wider text-white/30 font-bold mb-1">Carbs</div>
+                                        <div className="font-black text-sm">{Math.round(upcomingTargets[selectedMealType.toLowerCase()].carbs)}g</div>
+                                    </div>
+                                    <div className="bg-black/20 border border-white/5 rounded-xl p-3 text-center">
+                                        <div className="text-[9px] uppercase tracking-wider text-white/30 font-bold mb-1">Pro</div>
+                                        <div className="font-black text-sm">{Math.round(upcomingTargets[selectedMealType.toLowerCase()].protein)}g</div>
+                                    </div>
+                                    <div className="bg-black/20 border border-white/5 rounded-xl p-3 text-center">
+                                        <div className="text-[9px] uppercase tracking-wider text-white/30 font-bold mb-1">Fat</div>
+                                        <div className="font-black text-sm">{Math.round(upcomingTargets[selectedMealType.toLowerCase()].fat)}g</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         <PhotoUpload onImageSelect={handleImageSelect} />
                     </motion.div>
                 )}

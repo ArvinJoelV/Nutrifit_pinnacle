@@ -157,7 +157,16 @@ const MealDetailPage = () => {
                             className="bg-white/5 border border-white/5 rounded-2xl p-4 flex justify-between items-center"
                         >
                             <div>
-                                <div className="font-bold">{item.name}</div>
+                                <div className="font-bold mb-1 flex items-center gap-3">
+                                    {item.image && (
+                                        <img
+                                            src={item.image.startsWith('static/') ? `${(import.meta.env.VITE_BACKEND_URL || 'http://localhost:9510').replace(/\/$/, '')}/${item.image}` : item.image}
+                                            alt={item.name}
+                                            className="w-9 h-9 rounded-lg object-cover border border-white/10"
+                                        />
+                                    )}
+                                    <span>{item.name}</span>
+                                </div>
                                 <div className="flex gap-3 mt-1 text-xs text-white/40 font-medium">
                                     <span>{Math.round(item.protein * (item.multiplier || 1))}p</span>
                                     <span>{Math.round(item.carbs * (item.multiplier || 1))}c</span>

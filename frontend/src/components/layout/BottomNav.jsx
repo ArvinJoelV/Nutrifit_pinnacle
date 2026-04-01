@@ -1,14 +1,16 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Utensils, BarChart2, Activity, User } from 'lucide-react';
+import { Home, Utensils, BarChart2, Activity, Settings, Soup, User } from 'lucide-react';
 
 const BottomNav = () => {
     const navItems = [
         { name: 'Home', path: '/home', icon: Home },
         { name: 'Log', path: '/log', icon: Utensils },
-        { name: 'Insights', path: '/insights', icon: BarChart2 },
-        { name: 'Effect', path: '/eat-effect', icon: Activity },
+
+        { name: 'Plan', path: '/meal-plan', icon: Soup },
+
         { name: 'Profile', path: '/profile', icon: User },
+        { name: 'Settings', path: '/settings', icon: Settings },
     ];
 
     return (
