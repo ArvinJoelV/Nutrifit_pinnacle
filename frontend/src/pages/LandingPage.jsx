@@ -214,7 +214,7 @@ const LandingPage = () => {
     },
     secondaryButton: {
       padding: isMobile ? '14px 8px' : '20px 48px',
-      width: isMobile ? '30%' : 'auto',
+      width: isMobile ? '50%' : 'auto',
       fontSize: isMobile ? '8px' : '16px',
       fontWeight: '400',
       background: 'rgba(255, 255, 255, 0.1)',
@@ -626,11 +626,11 @@ const LandingPage = () => {
         {/* Scroll Indicator */}
         <div style={{
           position: 'absolute',
-          bottom: isMobile ? '40px' : '100px',
+          bottom: isMobile ? '150px' : '100px',
           left: '50%',
           transform: 'translateX(-50%)',
           color: '#94a3b8',
-          fontSize: '14px',
+          fontSize: isMobile ? '8px' : '14px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -643,8 +643,8 @@ const LandingPage = () => {
         }}>
           <span>Scroll more</span>
           <div style={{
-            width: '24px',
-            height: '40px',
+            width: isMobile ? '16px' : '24px',
+            height: isMobile ? '24px' : '40px',
             border: '2px solid #94a3b8',
             borderRadius: '12px',
             position: 'relative',
@@ -654,10 +654,10 @@ const LandingPage = () => {
               top: '1px',
               left: '50%',
               transform: 'translateX(-50%)',
-              width: '4px',
-              height: '20px',
+              width: isMobile ? '4px' : '8px',
+              height: isMobile ? '12px' : '20px',
               background: '#94a3b8',
-              borderRadius: '2px',
+              borderRadius: isMobile ? '1px' : '2px',
               animation: 'scrollDown 1s infinite',
             }} />
           </div>
