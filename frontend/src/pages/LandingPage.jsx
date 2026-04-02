@@ -215,7 +215,7 @@ const LandingPage = () => {
     secondaryButton: {
       padding: isMobile ? '14px 8px' : '20px 48px',
       width: isMobile ? '50%' : 'auto',
-      fontSize: isMobile ? '8px' : '16px',
+      fontSize: isMobile ? '13px' : '19px',
       fontWeight: '400',
       background: 'rgba(255, 255, 255, 0.1)',
       backdropFilter: 'blur(10px)',
@@ -274,11 +274,11 @@ const LandingPage = () => {
       boxShadow: '0 24px 60px rgba(0, 0, 0, 0.32)',
     },
     problemNumber: {
-      fontSize: isMobile ? '72px' : '138px',
+      fontSize: isMobile ? '102px' : '138px',
       fontWeight: '800',
       color: 'rgba(255, 255, 255, 0.08)',
       position: 'absolute',
-      top: '-8px',
+      top: isMobile ? '-0px' : '-8px',
       right: '18px',
       letterSpacing: '-6px',
       lineHeight: 1,
@@ -759,6 +759,7 @@ const LandingPage = () => {
           fontWeight: '800',
           marginBottom: '24px',
           color: '#ffffff',
+          lineHeight: 1.2,
         }}>
           Ready to experience food differently?
         </h2>
@@ -802,6 +803,7 @@ const LandingPage = () => {
             <div style={{
               fontSize: '35px',
               fontWeight: '800',
+              letterSpacing: '-1px',
               background: 'linear-gradient(135deg, #fca90e 0%, #e7d507 100%)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
