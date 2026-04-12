@@ -516,8 +516,16 @@ const HomePage = () => {
 
   return (
     <div className="space-y-6 pb-24 lg:pb-0">
-      <div className="grid grid-cols-12 gap-6">
-        <WelcomeCard user={{ greeting: getGreeting(), name: currentName, streak: currentStreak }} />
+        <div className="grid grid-cols-12 gap-6">
+        <WelcomeCard
+          user={{
+            greeting: getGreeting(),
+            name: currentName,
+            streak: currentStreak,
+            steps: activityCards?.steps || '0',
+            caloriesBurned: activityCards?.caloriesBurned || '0',
+          }}
+        />
 
         <MacroSummary macros={nutritionCards} />
         <QuickActions />

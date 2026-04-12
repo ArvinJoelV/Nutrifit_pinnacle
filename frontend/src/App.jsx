@@ -15,9 +15,11 @@ import ProfilePage from './pages/ProfilePage';
 import AppLayout from './components/layout/AppLayout';
 import PhotoLogPage from './pages/log/PhotoLogPage';
 import MealPlanPage from './pages/MealPlanPage';
+import HealthPage from './pages/HealthPage';
 
 import ConfirmMealPage from './pages/log/ConfirmMealPage';
 import MealDetailPage from './pages/log/MealDetailPage';
+import MealEatEffectTimelinePage from './pages/log/MealEatEffectTimelinePage';
 import MealSimulatorPage from './pages/log/MealSimulatorPage';
 import SearchLogPage from './pages/log/SearchLogPage';
 import SettingsPage from './pages/SettingsPage';
@@ -90,6 +92,12 @@ function App() {
             </AuthenticatedRoute>
           } />
 
+          <Route path="/meal/:id/eat-effect" element={
+            <AuthenticatedRoute>
+              <MealEatEffectTimelinePage />
+            </AuthenticatedRoute>
+          } />
+
           <Route path="/meal/:id/simulator" element={
             <AuthenticatedRoute>
               <MealSimulatorPage />
@@ -111,6 +119,12 @@ function App() {
           <Route path="/meal-plan" element={
             <AuthenticatedRoute>
               <MealPlanPage />
+            </AuthenticatedRoute>
+          } />
+
+          <Route path="/health" element={
+            <AuthenticatedRoute>
+              <HealthPage />
             </AuthenticatedRoute>
           } />
 

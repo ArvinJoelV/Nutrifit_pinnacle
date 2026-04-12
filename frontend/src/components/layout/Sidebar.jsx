@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Activity, BarChart2, Home, LogOut, Settings, Soup, TrendingUp, User, Utensils } from 'lucide-react';
+import { HeartPulse, Home, LogOut, Settings, Soup, User, Utensils } from 'lucide-react';
 import { auth } from '../../config/firebase';
 import { signOut } from 'firebase/auth';
 
@@ -17,6 +17,7 @@ const Sidebar = () => {
         { name: 'Home', path: '/home', icon: Home },
         { name: 'Log Food', path: '/log', icon: Utensils },
         { name: 'Meal Plan', path: '/meal-plan', icon: Soup },
+        { name: 'Health', path: '/health', icon: HeartPulse },
         { name: 'Profile', path: '/profile', icon: User },
         { name: 'Settings', path: '/settings', icon: Settings },
     ];
@@ -25,10 +26,8 @@ const Sidebar = () => {
         <aside className="hidden lg:flex flex-col w-64 h-screen fixed left-0 top-0 bg-black/20 backdrop-blur-xl border-r border-white/10 z-50">
             <div className="p-8">
                 <div className="flex items-center gap-3 mb-10">
-                    <div className="w-10 h-10 bg-linear-to-br from-primary-light to-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-                        <span className="text-xl">NF</span>
-                    </div>
-                    <span className="text-2xl font-black tracking-tighter bg-linear-to-r from-white to-white/60 bg-clip-text text-transparent">
+                    
+                    <span className="text-5xl font-black tracking-tighter bg-linear-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent">
                         NutriFit
                     </span>
                 </div>

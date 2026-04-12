@@ -8,9 +8,12 @@ from flask import Flask, jsonify, redirect, request
 from flask_cors import CORS
 from PIL import Image
 import google.generativeai as genai
+from google.api_core.client_options import ClientOptions
+
 from detector import process_image_with_labels
 from dotenv import load_dotenv
 from fit_store import get_daily_metrics, get_tokens, init_db, save_daily_metrics, save_tokens
+from grok_timeline_service import generate_eat_effect_timeline
 from meal_recommendation_service import (
     DailyNutritionState,
     build_ingredient_pools,
@@ -36,11 +39,17 @@ from google_fit_service import (
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
-
+GOOGLE_PROJECT_ID = os.getenv("GOOGLE_PROJECT_ID", "").strip()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash") if GOOGLE_API_KEY else None
+    genai.configure(
+        api_key=GOOGLE_API_KEY,
+        client_options=ClientOptions(
+            quota_project_id=GOOGLE_PROJECT_ID   # 🔥 THIS LINE FIXES IT
+        )
+    )
+model = genai.GenerativeModel("gemini-2.5-flash") if GOOGLE_API_KEY else None
+print("Model ready:", bool(model))
 
 app = Flask(__name__)
 CORS(app)
@@ -49,8 +58,6 @@ app.config["CROPPED_FOLDER"] = "static/cropped_mask"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["CROPPED_FOLDER"], exist_ok=True)
 init_db()
-
-
 
 
 
@@ -102,6 +109,42 @@ def _parse_macro_block(payload, key):
         "carbs": _to_float(block.get("carbs")),
         "protein": _to_float(block.get("protein")),
         "fat": _to_float(block.get("fat")),
+    }
+
+
+def _normalize_meal_payload(payload):
+    meal = payload.get("meal") or {}
+    macros = meal.get("macros") or {}
+    items = meal.get("items") or []
+    normalized_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        multiplier = _to_float(item.get("multiplier") or 1) or 1.0
+        normalized_items.append(
+            {
+                "name": str(item.get("name") or "Food"),
+                "calories": _to_float(item.get("calories")),
+                "protein": _to_float(item.get("protein")),
+                "carbs": _to_float(item.get("carbs")),
+                "fat": _to_float(item.get("fat")),
+                "multiplier": multiplier,
+            }
+        )
+
+    return {
+        "id": str(meal.get("id") or ""),
+        "type": str(meal.get("type") or "Meal"),
+        "time": str(meal.get("time") or ""),
+        "timestamp": str(meal.get("timestamp") or ""),
+        "totalCalories": _to_float(meal.get("totalCalories") or macros.get("calories")),
+        "macros": {
+            "calories": _to_float(macros.get("calories") or meal.get("totalCalories")),
+            "protein": _to_float(macros.get("protein")),
+            "carbs": _to_float(macros.get("carbs")),
+            "fat": _to_float(macros.get("fat")),
+        },
+        "items": normalized_items,
     }
 
 
@@ -291,6 +334,29 @@ def adjust_meal_plan():
     )
 
 
+@app.route("/api/eat-effect-timeline", methods=["POST"])
+def eat_effect_timeline():
+    payload = request.get_json(silent=True) or {}
+    meal = _normalize_meal_payload(payload)
+
+    if meal["totalCalories"] <= 0:
+        return _json_error("meal.totalCalories or meal.macros.calories is required", 400)
+
+    try:
+        timeline, debug = generate_eat_effect_timeline(meal)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    return jsonify(
+        {
+            "ok": True,
+            "mealId": meal["id"],
+            "timeline": timeline,
+            "debug": debug,
+        }
+    )
+
+
 def _extract_json_object(text):
     cleaned = re.sub(r"```json|```", "", text or "").strip()
     if not cleaned:
@@ -385,12 +451,21 @@ If uncertain, estimate realistically and still return numeric macro values.
         normalized_path = path.replace("\\", "/")
         try:
             img = Image.open(path)
+            app.logger.info(
+                "Gemini meal analysis request | segment=%s | label=%s | confidence=%.3f | path=%s",
+                idx,
+                detected_label,
+                float(segment.get("confidence", 0.0)),
+                normalized_path,
+            )
             response = model.generate_content(
                 [prompt, img],
                 generation_config={"response_mime_type": "application/json"},
             )
             raw_text = (response.text or "").strip()
+            app.logger.info("Gemini raw response | segment=%s | text=%s", idx, raw_text)
             payload = _extract_json_object(raw_text)
+            app.logger.info("Gemini parsed response | segment=%s | payload=%s", idx, json.dumps(payload, ensure_ascii=True))
 
             fallback = _fallback_from_label(detected_label)
             calories = _to_float(payload.get("calories"))
@@ -420,8 +495,29 @@ If uncertain, estimate realistically and still return numeric macro values.
                 "detectedConfidence": round(float(segment.get("confidence", 0.0)), 3),
                 "rawModelText": raw_text,
             }
+            app.logger.info(
+                "Meal analysis finalized | segment=%s | item=%s",
+                idx,
+                json.dumps(
+                    {
+                        "name": item["name"],
+                        "calories": item["calories"],
+                        "protein": item["protein"],
+                        "carbs": item["carbs"],
+                        "fat": item["fat"],
+                        "detectedLabel": item["detectedLabel"],
+                        "detectedConfidence": item["detectedConfidence"],
+                    },
+                    ensure_ascii=True,
+                ),
+            )
         except Exception as exc:
             fallback = _fallback_from_label(detected_label)
+            app.logger.exception(
+                "Gemini meal analysis failed | segment=%s | label=%s | usingFallback=true",
+                idx,
+                detected_label,
+            )
             item = {
                 "id": f"seg-{idx}",
                 "name": fallback["name"],
@@ -442,6 +538,7 @@ If uncertain, estimate realistically and still return numeric macro values.
         "carbs": round(sum(item["carbs"] for item in items), 2),
         "fat": round(sum(item["fat"] for item in items), 2),
     }
+    app.logger.info("Meal analysis totals | totals=%s", json.dumps(totals, ensure_ascii=True))
 
     return jsonify(
         {

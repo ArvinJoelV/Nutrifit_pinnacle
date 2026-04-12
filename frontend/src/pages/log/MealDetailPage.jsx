@@ -32,16 +32,12 @@ const MealDetailPage = () => {
     };
 
     const handleEdit = () => {
-        // Navigate to confirm page with current data for editing
         navigate('/log/confirm', {
             state: {
                 mealData: {
                     items: log.items,
                     totalCalories: log.totalCalories
                 },
-                // We'd need to handle 'update' mode in ConfirmPage strictly speaking, 
-                // but for now this acts as "Clone & Edit" or "Re-save"
-                // A full "Update" implementation would require passing the ID back.
             }
         });
     };
@@ -51,7 +47,6 @@ const MealDetailPage = () => {
 
     return (
         <div className="min-h-screen bg-[#060606] flex flex-col max-w-lg mx-auto pb-24">
-            {/* Header */}
             <div className="p-6 flex justify-between items-center sticky top-0 bg-[#060606]/80 backdrop-blur-xl z-20">
                 <button onClick={() => navigate('/home')} className="p-3 bg-white/5 rounded-full hover:bg-white/10 transition-colors">
                     <ArrowLeft className="w-6 h-6" />
@@ -71,7 +66,6 @@ const MealDetailPage = () => {
             </div>
 
             <div className="px-6 space-y-6">
-                {/* Summary Card */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -96,12 +90,11 @@ const MealDetailPage = () => {
                     </div>
                 </motion.div>
 
-                {/* Eat -> Effect Call to Action */}
                 <motion.button
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 }}
-                    onClick={() => navigate('/eat-effect')}
+                    onClick={() => navigate(`/meal/${id}/eat-effect`)}
                     className="w-full relative group overflow-hidden rounded-3xl p-[1px]"
                 >
                     <div className="absolute inset-0 bg-linear-to-r from-teal-400 via-blue-500 to-purple-500 opacity-70 group-hover:opacity-100 transition-opacity" />
@@ -111,41 +104,21 @@ const MealDetailPage = () => {
                                 <Activity className="w-6 h-6 text-teal-400" />
                             </div>
                             <div className="text-left">
-                                <div className="font-bold text-lg">View Eat → Effect</div>
-                                <div className="text-xs text-white/60">See metabolic impact</div>
+                                <div className="font-bold text-lg">View Eat Effect Timeline</div>
+                                <div className="text-xs text-white/60">See your hour-by-hour metabolic story</div>
                             </div>
                         </div>
                         <ChevronRight className="w-5 h-5 text-white/40 group-hover:text-white transition-colors" />
                     </div>
                 </motion.button>
 
-                {/* Simulator Button */}
-                <motion.button
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.15 }}
-                    onClick={() => navigate(`/meal/${id}/simulator`)}
-                    className="w-full bg-white/5 border border-white/10 rounded-3xl px-6 py-4 flex items-center justify-between hover:bg-white/10 transition-colors group"
-                >
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-purple-500/20 rounded-xl">
-                            <Activity className="w-6 h-6 text-purple-400" />
-                        </div>
-                        <div className="text-left">
-                            <div className="font-bold text-lg">What If? Simulator</div>
-                            <div className="text-xs text-white/60">Experiment with portions</div>
-                        </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-white/40 group-hover:text-white transition-colors" />
-                </motion.button>
+                
 
-                {/* Time Info */}
                 <div className="flex items-center gap-3 px-2 py-2">
                     <Clock className="w-4 h-4 text-white/40" />
                     <span className="text-sm font-medium text-white/60">Logged at {log.time}</span>
                 </div>
 
-                {/* Food List */}
                 <div className="space-y-3">
                     <h3 className="text-sm font-bold text-white/40 uppercase tracking-widest px-2">Items</h3>
                     {log.items.map((item, i) => (
@@ -182,7 +155,6 @@ const MealDetailPage = () => {
                 </div>
             </div>
 
-            {/* Delete Confirmation Modal */}
             <AnimatePresence>
                 {showDeleteConfirm && (
                     <>
