@@ -14,11 +14,27 @@ sam_model = SAM("sam2_b.pt")
 CROP_DIR = "static/cropped_mask"
 SAM_OUTPUT_DIR = "static/mask"
 
-# Ensure clean directory before each run
+def _clear_directory_contents(path):
+    if not os.path.isdir(path):
+        return
+
+    for name in os.listdir(path):
+        item_path = os.path.join(path, name)
+        try:
+            if os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+            else:
+                os.remove(item_path)
+        except PermissionError:
+            # Windows can briefly lock generated files/folders. The next run can
+            # still proceed because Ultralytics writes with exist_ok=True.
+            pass
+
+
+# Ensure output directories exist without deleting the folder itself on startup.
 os.makedirs(CROP_DIR, exist_ok=True)
-if os.path.exists(SAM_OUTPUT_DIR):
-    shutil.rmtree(SAM_OUTPUT_DIR)
 os.makedirs(SAM_OUTPUT_DIR, exist_ok=True)
+_clear_directory_contents(SAM_OUTPUT_DIR)
 
 def _run_segmentation(image_path):
     orig_image = cv2.imread(image_path)

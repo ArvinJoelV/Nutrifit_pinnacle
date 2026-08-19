@@ -8,13 +8,15 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 DEFAULT_NUTRITION_DATASET = os.getenv(
     "INDB_NUTRITION_DATASET",
-    r"E:\Projects\Nutrifit_pinnacle\backend\Anuvaad_INDB_2024.11.xlsx",
+    os.path.join(BASE_DIR, "Anuvaad_INDB_2024.11.xlsx"),
 )
 DEFAULT_INGREDIENT_CATEGORY_DATASET = os.getenv(
     "INGREDIENT_CATEGORY_DATASET",
-    r"E:\Projects\Nutrifit_pinnacle\backend\ingredient_category_dataset_indian.csv",
+    os.path.join(BASE_DIR, "ingredient_category_dataset_indian.csv"),
 )
 
 

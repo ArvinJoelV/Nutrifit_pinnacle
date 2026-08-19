@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Clock, Save, X } from 'lucide-react';
-import { saveMealLog } from '../../services/mealService';
+import { getDailyStats, saveMealLog } from '../../services/mealService';
+import { getGoogleFitActivity } from '../../services/googleFitService';
+import { runMealLoggedWorkflow } from '../../services/agentService';
+import { calculateDiabetesNutritionPlan, getUserProfile } from '../../services/userService';
+import { useOnboarding } from '../../contexts/OnboardingContext';
 
 const getCurrentTimeHHMM = () => {
     const now = new Date();
@@ -11,9 +15,35 @@ const getCurrentTimeHHMM = () => {
     return `${hours}:${minutes}`;
 };
 
+const mealOrder = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+const normalizeMealType = (value = '') => {
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized.startsWith('break')) return 'breakfast';
+    if (normalized.startsWith('lunch')) return 'lunch';
+    if (normalized.startsWith('din')) return 'dinner';
+    if (normalized.startsWith('snack')) return 'snack';
+    return 'snack';
+};
+
+const getTodayActivity = (rows = []) => {
+    const today = new Date().toLocaleDateString('en-CA');
+    return [...rows]
+        .sort((a, b) => String(b.activity_date || '').localeCompare(String(a.activity_date || '')))
+        .find((row) => row.activity_date === today) || rows[0] || {};
+};
+
+const addMacros = (left = {}, right = {}) => ({
+    calories: Number(left.calories || 0) + Number(right.calories || 0),
+    carbs: Number(left.carbs || 0) + Number(right.carbs || 0),
+    protein: Number(left.protein || 0) + Number(right.protein || 0),
+    fat: Number(left.fat || 0) + Number(right.fat || 0),
+});
+
 const ConfirmMealPage = () => {
     const { state } = useLocation();
     const navigate = useNavigate();
+    const { formData } = useOnboarding();
     const [isSaving, setIsSaving] = useState(false);
     const [mealTime, setMealTime] = useState(getCurrentTimeHHMM());
 
@@ -38,13 +68,78 @@ const ConfirmMealPage = () => {
     const handleSave = async () => {
         setIsSaving(true);
         try {
+            const [stats, profile, activity] = await Promise.all([
+                getDailyStats(),
+                getUserProfile().catch(() => null),
+                getGoogleFitActivity(7).catch(() => ({ items: [] })),
+            ]);
+
+            const mealType = normalizeMealType(items[0]?.mealType || 'Snack');
+            const latestActivity = getTodayActivity(activity.items || []);
+            const resolvedProfile = profile || formData || {};
+            const plan = calculateDiabetesNutritionPlan(
+                resolvedProfile,
+                Number(latestActivity?.calories_burned || 0),
+            );
+            const latestMealMacros = {
+                calories: Number(totalCalories || 0),
+                carbs: macros.carbs,
+                protein: macros.protein,
+                fat: macros.fat,
+            };
+            const consumedMacros = addMacros(stats.totals, latestMealMacros);
+            const today = new Date().toLocaleDateString('en-CA');
+            const completedMeals = new Set(
+                (stats.meals || [])
+                    .filter((meal) => meal.localDate === today || meal.date === today)
+                    .map((meal) => normalizeMealType(meal.type || meal.items?.[0]?.mealType || ''))
+                    .filter((meal) => mealOrder.includes(meal)),
+            );
+            completedMeals.add(mealType);
+
             const savedLog = await saveMealLog({
                 items,
                 totalCalories,
-                macros,
+                macros: latestMealMacros,
                 time: mealTime,
-                type: items[0]?.mealType || 'Snack' // Default type if not set
+                type: mealType,
             });
+
+            try {
+                const agentResult = await runMealLoggedWorkflow({
+                    dailyMacros: {
+                        calories: plan.target_calories,
+                        carbs: plan.carbs_g,
+                        protein: plan.protein_g,
+                        fat: plan.fat_g,
+                    },
+                    consumedMacros,
+                    completedMeals: Array.from(completedMeals),
+                    latestMeal: {
+                        id: savedLog.id,
+                        type: mealType,
+                        totalCalories,
+                        macros: latestMealMacros,
+                        items,
+                        time: mealTime,
+                        timestamp: savedLog.timestamp,
+                    },
+                    patientProfile: resolvedProfile,
+                    activity: latestActivity,
+                    topN: 1,
+                });
+
+                localStorage.setItem('nutrifit_latest_agent_result', JSON.stringify({
+                    cachedAt: new Date().toISOString(),
+                    localDate: new Date().toLocaleDateString('en-CA'),
+                    result: agentResult,
+                }));
+                localStorage.setItem('nutrifit_cached_meal_targets', JSON.stringify(agentResult.nextMealTargets || {}));
+                localStorage.setItem('nutrifit_cached_agent_message', agentResult.message || '');
+            } catch (agentError) {
+                console.warn('Agent workflow failed after meal save:', agentError);
+            }
+
             navigate(`/meal/${savedLog.id}`);
         } catch (error) {
             console.error("Save failed:", error); // Changed for debugging

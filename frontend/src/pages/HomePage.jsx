@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Camera, ChevronDown, Loader2, Save, Target, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Bot, Camera, ChevronDown, Loader2, Save, Target, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import WelcomeCard from '../components/dashboard/WelcomeCard';
 import ActivityOverview from '../components/dashboard/ActivityOverview';
@@ -21,6 +21,14 @@ const sortActivityRows = (rows = []) =>
 const getTodayActivity = (rows = []) => {
   const today = new Date().toLocaleDateString('en-CA');
   return rows.find((row) => row.activity_date === today) || rows[0] || null;
+};
+
+const readJsonStorage = (key) => {
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null');
+  } catch {
+    return null;
+  }
 };
 
 const hasDiabetesInputs = (profile = {}) =>
@@ -303,6 +311,53 @@ const RecoverySnackAlert = ({ steps, carbsConsumed, carbsTarget }) => {
   );
 };
 
+const AgentCoachUpdate = ({ agentResult }) => {
+  const result = agentResult?.result || agentResult;
+  if (!result?.message) return null;
+
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const primaryWarning = warnings[0];
+
+  return (
+    <div className="col-span-12 bg-linear-to-br from-cyan-400/10 via-white/[0.04] to-emerald-400/8 border border-cyan-300/15 rounded-[2.5rem] p-8">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+        <div className="flex items-start gap-4">
+          <div className="p-3 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-200">
+            <Bot className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs font-bold uppercase tracking-widest text-cyan-100/55">
+              Agent Coach Update
+            </div>
+            <h3 className="mt-2 text-2xl font-black text-white">Today&apos;s plan was adjusted</h3>
+            <p className="mt-3 max-w-4xl text-sm leading-relaxed text-white/65">{result.message}</p>
+          </div>
+        </div>
+        {result.traceId ? (
+          <div className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white/35">
+            Trace {String(result.traceId).slice(0, 8)}
+          </div>
+        ) : null}
+      </div>
+
+      {primaryWarning ? (
+        <div className="mt-6 rounded-2xl border border-amber-300/15 bg-amber-300/10 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-200" />
+            <div>
+              <div className="font-bold text-amber-100">{primaryWarning.title}</div>
+              <p className="mt-1 text-sm leading-relaxed text-amber-50/70">{primaryWarning.message}</p>
+              {primaryWarning.action ? (
+                <p className="mt-3 text-sm font-medium text-white/75">{primaryWarning.action}</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const HomePage = () => {
   const navigate = useNavigate();
   const { formData } = useOnboarding();
@@ -327,6 +382,7 @@ const HomePage = () => {
   const [upcomingMealError, setUpcomingMealError] = useState('');
   const [upcomingMealTargets, setUpcomingMealTargets] = useState({});
   const [upcomingMealRecommendations, setUpcomingMealRecommendations] = useState({});
+  const [latestAgentResult, setLatestAgentResult] = useState(null);
   const [showIntakeForm, setShowIntakeForm] = useState(false);
   const [isSavingIntake, setIsSavingIntake] = useState(false);
   const [intakeMessage, setIntakeMessage] = useState('');
@@ -367,6 +423,10 @@ const HomePage = () => {
       const plan = calculateDiabetesNutritionPlan(resolvedProfile, Number(latest?.calories_burned || 0));
 
       const today = new Date().toLocaleDateString('en-CA');
+      const cachedAgentPayload = readJsonStorage('nutrifit_latest_agent_result');
+      const cachedAgentDate = cachedAgentPayload?.localDate || cachedAgentPayload?.cachedAt?.slice(0, 10);
+      setLatestAgentResult(cachedAgentDate === today ? cachedAgentPayload : null);
+
       const todaysMeals = (stats.meals || []).filter((meal) => meal.localDate === today || meal.date === today);
       const buckets = mealOrder.reduce((acc, mealType) => {
         acc[mealType] = { calories: 0, carbs: 0, protein: 0, fat: 0 };
@@ -557,6 +617,8 @@ const HomePage = () => {
           error={upcomingMealError}
           onLogMeal={() => navigate('/log/photo', { state: { mealType: mealLabels[nextMealType] } })}
         />
+
+        <AgentCoachUpdate agentResult={latestAgentResult} />
 
         {!hasDiabetesInputs(userProfile || formData) && (
           <div className="col-span-12 bg-white/5 border border-white/10 rounded-[2.5rem] p-8">

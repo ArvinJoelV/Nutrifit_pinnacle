@@ -10,6 +10,7 @@ from PIL import Image
 import google.generativeai as genai
 from google.api_core.client_options import ClientOptions
 
+from agents import HealthCoordinatorAgent
 from detector import process_image_with_labels
 from dotenv import load_dotenv
 from fit_store import get_daily_metrics, get_tokens, init_db, save_daily_metrics, save_tokens
@@ -48,7 +49,8 @@ if GOOGLE_API_KEY:
             quota_project_id=GOOGLE_PROJECT_ID   # 🔥 THIS LINE FIXES IT
         )
     )
-model = genai.GenerativeModel("gemini-2.5-flash") if GOOGLE_API_KEY else None
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
+model = genai.GenerativeModel(GEMINI_MODEL) if GOOGLE_API_KEY else None
 print("Model ready:", bool(model))
 
 app = Flask(__name__)
@@ -58,6 +60,7 @@ app.config["CROPPED_FOLDER"] = "static/cropped_mask"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["CROPPED_FOLDER"], exist_ok=True)
 init_db()
+agent_coordinator = HealthCoordinatorAgent(model=model)
 
 
 
@@ -334,8 +337,184 @@ def adjust_meal_plan():
     )
 
 
+@app.route("/api/agent/workflows/log-meal", methods=["POST"])
+def agent_log_meal_workflow():
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("userId") or payload.get("user_id") or "").strip()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    daily_macros = payload.get("dailyMacros") or payload.get("daily_macros") or {}
+    consumed_macros = payload.get("consumedMacros") or payload.get("consumed_macros") or {}
+    missing_daily = [key for key in ["calories", "carbs", "protein", "fat"] if key not in daily_macros]
+    missing_consumed = [key for key in ["calories", "carbs", "protein", "fat"] if key not in consumed_macros]
+    if missing_daily:
+        return _json_error(f"dailyMacros is missing required keys: {missing_daily}", 400)
+    if missing_consumed:
+        return _json_error(f"consumedMacros is missing required keys: {missing_consumed}", 400)
+
+    try:
+        response = agent_coordinator.run_meal_logged_workflow(user_id=user_id, payload=payload)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    status = 200 if response.ok else 500
+    return jsonify(response.model_dump()), status
+
+
+@app.route("/api/agent/workflows/new-user", methods=["POST"])
+def agent_new_user_workflow():
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("userId") or payload.get("user_id") or "").strip()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    try:
+        response = agent_coordinator.run_new_user_workflow(user_id=user_id, payload=payload)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    status = 200 if response.ok else 500
+    return jsonify(response.model_dump()), status
+
+
+@app.route("/api/agent/workflows/activity-update", methods=["POST"])
+def agent_activity_update_workflow():
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("userId") or payload.get("user_id") or "").strip()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    try:
+        response = agent_coordinator.run_activity_update_workflow(user_id=user_id, payload=payload)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    status = 200 if response.ok else 500
+    return jsonify(response.model_dump()), status
+
+
+@app.route("/api/agent/workflows/meal-upload", methods=["POST"])
+def agent_meal_upload_workflow():
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("userId") or payload.get("user_id") or "").strip()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    try:
+        response = agent_coordinator.run_meal_upload_workflow(user_id=user_id, payload=payload)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    status = 200 if response.ok else 500
+    return jsonify(response.model_dump()), status
+
+
+@app.route("/api/agent/workflows/plan-request", methods=["POST"])
+def agent_plan_request_workflow():
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("userId") or payload.get("user_id") or "").strip()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    try:
+        response = agent_coordinator.run_plan_request_workflow(user_id=user_id, payload=payload)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    status = 200 if response.ok else 500
+    return jsonify(response.model_dump()), status
+
+
+@app.route("/api/agent/workflows/<workflow_name>", methods=["POST"])
+def agent_generic_workflow(workflow_name):
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("userId") or payload.get("user_id") or "").strip()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    try:
+        response = agent_coordinator.run_workflow(workflow_name=workflow_name, user_id=user_id, payload=payload)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    status = 200 if response.ok else 500
+    return jsonify(response.model_dump()), status
+
+
+
 @app.route("/api/eat-effect-timeline", methods=["POST"])
 def eat_effect_timeline():
+    payload = request.get_json(silent=True) or {}
+    meal = _normalize_meal_payload(payload)
+
+    if meal["totalCalories"] <= 0:
+        return _json_error("meal.totalCalories or meal.macros.calories is required", 400)
+
+    try:
+        timeline, debug = generate_eat_effect_timeline(meal)
+    except Exception as exc:
+        return _json_error(str(exc), 500)
+
+    return jsonify(
+        {
+            "ok": True,
+            "mealId": meal["id"],
+            "timeline": timeline,
+            "debug": debug,
+        }
+    )
+
+
+def _extract_json_object(text):
+    cleaned = re.sub(r"```json|```", "", text or "").strip()
+    if not cleaned:
+        return {}
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except Exception:
+            try:
+                return ast.literal_eval(candidate)
+            except Exception:
+                return {}
+    return {}
+
+
+def _to_float(value):
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        match = re.search(r"-?\d+(\.\d+)?", value)
+        return float(match.group()) if match else 0.0
+    return 0.0
+
+
+MACRO_FALLBACKS = {
+    "biryani": {"calories": 290, "protein": 9, "carbs": 36, "fat": 12},
+    "bread halwa": {"calories": 280, "protein": 4, "carbs": 38, "fat": 12},
+    "tandoori-chicken": {"calories": 220, "protein": 28, "carbs": 3, "fat": 10},
+    "chicken fry": {"calories": 260, "protein": 24, "carbs": 4, "fat": 16},
+    "chicken 65": {"calories": 300, "protein": 22, "carbs": 10, "fat": 20},
+    "egg": {"calories": 78, "protein": 6, "carbs": 1, "fat": 5},
+    "sambar": {"calories": 90, "protein": 4, "carbs": 13, "fat": 2},
+    "raitha": {"calories": 70, "protein": 3, "carbs": 5, "fat": 4},
+    "chutney": {"calories": 60, "protein": 1, "carbs": 6, "fat": 3},
+    "dosa": {"calories": 168, "protein": 4, "carbs": 28, "fat": 4},
+    "idli": {"calories": 58, "protein": 2, "carbs": 12, "fat": 0.4},
+}
+
+
+def _normalize_label(label):
     payload = request.get_json(silent=True) or {}
     meal = _normalize_meal_payload(payload)
 
@@ -411,11 +590,7 @@ def _normalize_label(label):
 
 def _fallback_from_label(label):
     normalized = _normalize_label(label)
-    if normalized in MACRO_FALLBACKS:
-        fallback = MACRO_FALLBACKS[normalized].copy()
-        fallback["name"] = label.replace("-", " ").replace("_", " ").title() or "Detected Food"
-        return fallback
-    return {"name": label.replace("-", " ").replace("_", " ").title() or "Detected Food", "calories": 140, "protein": 6, "carbs": 16, "fat": 5}
+    return MACRO_FALLBACKS.get(normalized, {"name": label, "calories": 200, "protein": 5, "carbs": 20, "fat": 5})
 
 
 @app.route("/api/analyze-meal", methods=["POST"])
@@ -449,6 +624,7 @@ If uncertain, estimate realistically and still return numeric macro values.
         path = segment["path"]
         detected_label = segment.get("label", "food")
         normalized_path = path.replace("\\", "/")
+        item = None
         try:
             img = Image.open(path)
             app.logger.info(
@@ -473,6 +649,12 @@ If uncertain, estimate realistically and still return numeric macro values.
             carbs = _to_float(payload.get("carbs", payload.get("carbohydrates")))
             fat = _to_float(payload.get("fat", payload.get("fats")))
             model_name = str(payload.get("name", "")).strip()
+
+            # Skip non-food items identified by Gemini
+            not_food_keywords = ["not a food", "not food", "no food", "non-food", "person", "human", "face", "selfie", "object"]
+            if any(kw in model_name.lower() for kw in not_food_keywords):
+                app.logger.info("Gemini identified non-food item | segment=%s | name=%s — skipping", idx, model_name)
+                continue
 
             if calories <= 0:
                 calories = fallback["calories"]
@@ -530,7 +712,9 @@ If uncertain, estimate realistically and still return numeric macro values.
                 "detectedConfidence": round(float(segment.get("confidence", 0.0)), 3),
                 "error": str(exc),
             }
-        items.append(item)
+        
+        if item is not None:
+            items.append(item)
 
     totals = {
         "calories": round(sum(item["calories"] for item in items), 2),
