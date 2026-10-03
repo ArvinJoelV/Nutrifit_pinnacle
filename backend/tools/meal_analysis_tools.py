@@ -71,11 +71,66 @@ def _fallback_from_label(label):
 class MealAnalysisTool(BaseTool):
     name = "meal_analysis"
 
+    def __init__(self, pipeline=None):
+        super().__init__()
+        self.pipeline = pipeline
+
     def run(self, **kwargs) -> ToolResult:
         image_path = kwargs.get("image_path")
         inference_provider = kwargs.get("inference_provider")
         model = kwargs.get("model")
 
+        # 1. Execute FoodPortionPipeline (Physical scale, Depth, 3D Volume, Occlusion, Mass)
+        try:
+            edge_enabled = os.getenv("EDGE_NODE_ENABLED", "false").lower() in ("true", "1", "yes")
+            if edge_enabled or isinstance(inference_provider, str) and inference_provider == "edge_node":
+                from inference.edge_provider import EdgeNodeInferenceProvider
+                edge_prov = inference_provider if isinstance(inference_provider, EdgeNodeInferenceProvider) else EdgeNodeInferenceProvider()
+                if edge_prov.is_available():
+                    logger.info("Executing 3D portion pipeline on RS PRO C100 Edge Node...")
+                    pipeline_res = edge_prov.process_portion(image_path)
+                else:
+                    logger.info("Edge node offline, running local FoodPortionPipeline...")
+                    from food_portion.pipeline import FoodPortionPipeline
+                    from food_portion.gemini.validator import GeminiValidator
+                    if self.pipeline is None:
+                        self.pipeline = FoodPortionPipeline(gemini_validator=GeminiValidator(model_instance=model))
+                    pipeline_res = self.pipeline.process(image_path, gemini_model=model)
+            else:
+                from food_portion.pipeline import FoodPortionPipeline
+                from food_portion.gemini.validator import GeminiValidator
+                if self.pipeline is None:
+                    self.pipeline = FoodPortionPipeline(gemini_validator=GeminiValidator(model_instance=model))
+                pipeline_res = self.pipeline.process(image_path, gemini_model=model)
+
+            items = pipeline_res.get("items", [])
+            if items:
+                totals = {
+                    "calories": round(sum(it.get("calories", 0) for it in items), 1),
+                    "protein": round(sum(it.get("protein", 0) for it in items), 1),
+                    "carbs": round(sum(it.get("carbs", 0) for it in items), 1),
+                    "fat": round(sum(it.get("fat", 0) for it in items), 1),
+                    "mass_g": pipeline_res.get("total_mass_g", 0.0),
+                }
+                return ToolResult(
+                    ok=True,
+                    tool=self.name,
+                    data={
+                        "items": items,
+                        "totals": totals,
+                        "totalCalories": totals["calories"],
+                        "total_mass_g": totals["mass_g"],
+                        "scale_calibration": pipeline_res.get("scale_calibration"),
+                        "scene_assessment": pipeline_res.get("scene_assessment"),
+                        "gemini_validation": pipeline_res.get("gemini_validation"),
+                        "segmentedImage": pipeline_res.get("segmentedImage"),
+                        "originalImage": image_path.replace("\\", "/") if image_path else None,
+                    }
+                )
+        except Exception as exc:
+            logger.warning(f"FoodPortionPipeline encountered error, falling back to legacy flow: {exc}")
+
+        # 2. Legacy fallback
         if not inference_provider:
             from inference.local_provider import LocalInferenceProvider
             inference_provider = LocalInferenceProvider()

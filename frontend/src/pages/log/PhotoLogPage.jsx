@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Check, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, RefreshCw, Cpu } from 'lucide-react';
 import PhotoUpload from '../../components/log/PhotoUpload';
 import FoodDetectionPreview from '../../components/log/FoodDetectionPreview';
 import PortionEditor from '../../components/log/PortionEditor';
+import PipelineInspectorModal from '../../components/log/PipelineInspectorModal';
 import { analyzeMealImage } from '../../services/mealAnalysisService';
 import { getDailyStats } from '../../services/mealService';
 import { getUserProfile, calculateDiabetesNutritionPlan } from '../../services/userService';
@@ -21,6 +22,8 @@ const PhotoLogPage = () => {
     const [segmentedImage, setSegmentedImage] = useState(null);
     const [analysisError, setAnalysisError] = useState('');
     const [detectedItems, setDetectedItems] = useState([]);
+    const [analysisMeta, setAnalysisMeta] = useState(null);
+    const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 
     const { formData } = useOnboarding();
     const [isLoadingTargets, setIsLoadingTargets] = useState(true);
@@ -118,6 +121,15 @@ const PhotoLogPage = () => {
                 if (isCancelled) return;
                 setDetectedItems(result.items.map((item) => ({ ...item, mealType: selectedMealType })));
                 setSegmentedImage(result.segmentedImage || null);
+                setAnalysisMeta({
+                    total_mass_g: result.total_mass_g,
+                    scale_calibration: result.scale_calibration,
+                    scene_assessment: result.scene_assessment,
+                    gemini_validation: result.gemini_validation,
+                    pipeline_trace: result.pipeline_trace || [],
+                    pipeline_duration_ms: result.pipeline_duration_ms || 0,
+                    execution_target: result.execution_target,
+                });
                 setStep('review');
             } catch (error) {
                 if (isCancelled || error.name === 'AbortError') return;
@@ -149,12 +161,20 @@ const PhotoLogPage = () => {
     const handleConfirm = () => {
         // Calculate totals
         const totalCalories = detectedItems.reduce((sum, item) => sum + (item.calories * (item.multiplier || 1)), 0);
+        const totalMass = detectedItems.reduce((sum, item) => sum + ((item.mass_g || 0) * (item.multiplier || 1)), 0);
 
         const finalMealData = {
             image,
             segmentedImage,
             items: detectedItems.map((item) => ({ ...item, mealType: item.mealType || selectedMealType })),
-            totalCalories: Math.round(totalCalories)
+            totalCalories: Math.round(totalCalories),
+            total_mass_g: totalMass > 0 ? Math.round(totalMass * 10) / 10 : (analysisMeta?.total_mass_g || null),
+            scale_calibration: analysisMeta?.scale_calibration || null,
+            scene_assessment: analysisMeta?.scene_assessment || null,
+            gemini_validation: analysisMeta?.gemini_validation || null,
+            pipeline_trace: analysisMeta?.pipeline_trace || [],
+            pipeline_duration_ms: analysisMeta?.pipeline_duration_ms || 0,
+            execution_target: analysisMeta?.execution_target,
         };
 
         navigate('/log/confirm', { state: { mealData: finalMealData } });
@@ -167,6 +187,7 @@ const PhotoLogPage = () => {
         setImage(null);
         setImageFile(null);
         setSegmentedImage(null);
+        setAnalysisMeta(null);
         setAnalysisError('');
         setDetectedItems([]);
         setStep('upload');
@@ -267,7 +288,20 @@ const PhotoLogPage = () => {
                                     animate={{ opacity: 1, x: 0 }}
                                     className="flex flex-col h-full bg-black/20 backdrop-blur-md rounded-[2.5rem] p-6 border border-white/10"
                                 >
-                                    <h3 className="text-lg font-bold mb-4 px-2">Detected Items</h3>
+                                    <div className="flex items-center justify-between mb-4 px-2">
+                                        <h3 className="text-lg font-bold">Detected Items</h3>
+                                        {analysisMeta?.pipeline_trace?.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsInspectorOpen(true)}
+                                                className="px-2.5 py-1 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
+                                                title="Inspect output of each Python file & function in the pipeline"
+                                            >
+                                                <Cpu className="w-3.5 h-3.5 text-amber-400" />
+                                                <span>Inspect Pipeline</span>
+                                            </button>
+                                        )}
+                                    </div>
 
                                     {detectedItems.length > 0 ? (
                                         <PortionEditor
@@ -282,9 +316,16 @@ const PhotoLogPage = () => {
 
                                     <div className="mt-6 pt-6 border-t border-white/10">
                                         <div className="flex justify-between items-center mb-6 px-2">
-                                            <span className="text-white/60 font-medium">Total Calories</span>
+                                            <div>
+                                                <span className="text-white/60 font-medium block">Total Estimate</span>
+                                                {detectedItems.some(i => i.mass_g) && (
+                                                    <span className="text-xs font-semibold text-amber-400/90">
+                                                        {Math.round(detectedItems.reduce((sum, item) => sum + ((item.mass_g || 0) * (item.multiplier || 1)), 0))}g total mass
+                                                    </span>
+                                                )}
+                                            </div>
                                             <span className="text-3xl font-black">
-                                                {Math.round(detectedItems.reduce((sum, item) => sum + (item.calories * (item.multiplier || 1)), 0))}
+                                                {Math.round(detectedItems.reduce((sum, item) => sum + (item.calories * (item.multiplier || 1)), 0))} <span className="text-sm font-medium text-white/50">kcal</span>
                                             </span>
                                         </div>
 
@@ -311,6 +352,19 @@ const PhotoLogPage = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* Full Pipeline Debug Inspector Modal */}
+            <PipelineInspectorModal
+                isOpen={isInspectorOpen}
+                onClose={() => setIsInspectorOpen(false)}
+                trace={analysisMeta?.pipeline_trace || []}
+                durationMs={analysisMeta?.pipeline_duration_ms || 0}
+                summaryData={{
+                    total_mass_g: analysisMeta?.total_mass_g,
+                    total_items: detectedItems.length,
+                    execution_target: analysisMeta?.execution_target,
+                }}
+            />
         </div>
     );
 };

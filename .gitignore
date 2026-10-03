@@ -1,4 +1,5 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 node_modules/
@@ -9,4 +10,8 @@ backend/nutrifit
 runs/
 static/uploads/
 static/cropped_mask/
-nutrifit.db
+*.db
+*.log
+*.pt
+lcd_crop.jpg
+scale_crop.jpg

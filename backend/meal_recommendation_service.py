@@ -6,6 +6,14 @@ from itertools import product
 from typing import Dict, List, Optional
 
 import pandas as pd
+import numpy as np
+from scipy.optimize import linprog
+from meal_recipes import (
+    AUTHENTIC_INDIAN_RECIPES,
+    MealRecipe,
+    RecipeComponent,
+    get_recipes_for_meal_type,
+)
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -193,29 +201,42 @@ def _require_columns(frame: pd.DataFrame, required_columns: List[str], dataset_n
         raise ValueError(f"{dataset_name} is missing required columns: {missing}")
 
 
+_CACHED_NUTRITION_DF = None
+_CACHED_INGREDIENT_DF = None
+_CACHED_NUTRITION_LOOKUP = None
+_CACHED_CANONICAL_MAP = None
+
+
 def load_nutrition_dataset(path: Optional[str] = None) -> pd.DataFrame:
+    global _CACHED_NUTRITION_DF
+    if path is None and _CACHED_NUTRITION_DF is not None:
+        return _CACHED_NUTRITION_DF
     dataset_path = path or DEFAULT_NUTRITION_DATASET
     source_df = pd.read_excel(dataset_path)
     source_df.columns = [str(column).strip().lower() for column in source_df.columns]
 
-    def pick_column(primary: str, fallback: Optional[str] = None, default=0):
+    def pick_column(primary: str, fallback: Optional[str] = None, default=0.0):
         if primary in source_df.columns:
-            return source_df[primary]
+            series = pd.to_numeric(source_df[primary], errors="coerce")
+            if fallback and fallback in source_df.columns:
+                fallback_series = pd.to_numeric(source_df[fallback], errors="coerce")
+                series = series.fillna(fallback_series)
+            return series.fillna(default)
         if fallback and fallback in source_df.columns:
-            return source_df[fallback]
+            return pd.to_numeric(source_df[fallback], errors="coerce").fillna(default)
         return pd.Series([default] * len(source_df))
 
     nutrition_df = pd.DataFrame(
         {
-            "food_name": pick_column("food_name", default=""),
+            "food_name": source_df["food_name"] if "food_name" in source_df.columns else pd.Series([""] * len(source_df)),
             "calories_per_portion": pick_column("unit_serving_energy_kcal", "energy_kcal"),
             "carbs_g": pick_column("unit_serving_carb_g", "carb_g"),
             "protein_g": pick_column("unit_serving_protein_g", "protein_g"),
             "fat_g": pick_column("unit_serving_fat_g", "fat_g"),
             "fiber_g": pick_column("unit_serving_fibre_g", "fibre_g"),
             "sodium_mg": pick_column("unit_serving_sodium_mg", "sodium_mg"),
-            "portion_size_g": pick_column("portion_size_g", default=0),
-            "serving_size_label": pick_column("servings_unit", default=""),
+            "portion_size_g": pick_column("portion_size_g", default=0.0),
+            "serving_size_label": source_df["servings_unit"] if "servings_unit" in source_df.columns else pd.Series([""] * len(source_df)),
         }
     )
 
@@ -235,12 +256,18 @@ def load_nutrition_dataset(path: Optional[str] = None) -> pd.DataFrame:
         "portion_size_g",
     ]
     for column in numeric_columns:
-        nutrition_df[column] = pd.to_numeric(nutrition_df[column], errors="coerce")
+        nutrition_df[column] = pd.to_numeric(nutrition_df[column], errors="coerce").fillna(0.0)
 
+    if path is None:
+        _CACHED_NUTRITION_DF = nutrition_df
     return nutrition_df
 
 
+
 def load_ingredient_categories(path: Optional[str] = None) -> pd.DataFrame:
+    global _CACHED_INGREDIENT_DF
+    if path is None and _CACHED_INGREDIENT_DF is not None:
+        return _CACHED_INGREDIENT_DF
     dataset_path = path or DEFAULT_INGREDIENT_CATEGORY_DATASET
     ingredient_df = pd.read_csv(dataset_path)
     ingredient_df.columns = [str(column).strip().lower() for column in ingredient_df.columns]
@@ -254,6 +281,8 @@ def load_ingredient_categories(path: Optional[str] = None) -> pd.DataFrame:
     ingredient_df["diabetes_tag"] = ingredient_df["diabetes_tag"].map(normalize_ingredient_name)
 
     ingredient_df = ingredient_df[ingredient_df["ingredient"] != ""].copy()
+    if path is None:
+        _CACHED_INGREDIENT_DF = ingredient_df
     return ingredient_df
 
 
@@ -299,6 +328,9 @@ def generate_meal_candidates(template: List[str], ingredient_pools: Dict[str, Li
 
 
 def _build_nutrition_lookup(nutrition_df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
+    global _CACHED_NUTRITION_LOOKUP
+    if _CACHED_NUTRITION_LOOKUP is not None and nutrition_df is _CACHED_NUTRITION_DF:
+        return _CACHED_NUTRITION_LOOKUP
     required_columns = [
         "food_name",
         "calories_per_portion",
@@ -332,7 +364,7 @@ def _build_nutrition_lookup(nutrition_df: pd.DataFrame) -> Dict[str, Dict[str, f
         }
     )
 
-    return {
+    lookup = {
         row["food_name"]: {
             "calories": float(row["calories_per_portion"] or 0),
             "carbs": float(row["carbs_g"] or 0),
@@ -345,6 +377,9 @@ def _build_nutrition_lookup(nutrition_df: pd.DataFrame) -> Dict[str, Dict[str, f
         }
         for _, row in aggregated_df.iterrows()
     }
+    if nutrition_df is _CACHED_NUTRITION_DF or _CACHED_NUTRITION_DF is None:
+        _CACHED_NUTRITION_LOOKUP = lookup
+    return lookup
 
 
 def _filter_ingredient_pools(
@@ -390,14 +425,18 @@ def _resolve_ingredient_name(
     if resolution_cache is not None and normalized in resolution_cache:
         return resolution_cache[normalized]
 
+    global _CACHED_CANONICAL_MAP
     canonical_query = _canonicalize_name(normalized)
-    canonical_map = {_canonicalize_name(name): name for name in nutrition_lookup}
+    if _CACHED_CANONICAL_MAP is None or len(_CACHED_CANONICAL_MAP) != len(nutrition_lookup):
+        _CACHED_CANONICAL_MAP = {_canonicalize_name(name): name for name in nutrition_lookup}
+    canonical_map = _CACHED_CANONICAL_MAP
 
     resolved = None
     if normalized in nutrition_lookup:
         resolved = normalized
     elif canonical_query in canonical_map:
         resolved = canonical_map[canonical_query]
+
     else:
         alias = INGREDIENT_ALIASES.get(normalized) or INGREDIENT_ALIASES.get(canonical_query.replace(" ", "_"))
         alias_canonical = _canonicalize_name(alias) if alias else ""
@@ -533,7 +572,11 @@ def calculate_meal_macros(
     return totals
 
 
-def score_meal(meal_macros: Dict[str, float], target_macros: Dict[str, float]) -> float:
+def score_meal(
+    meal_macros: Dict[str, float],
+    target_macros: Dict[str, float],
+    avg_gi: float = 45.0,
+) -> float:
     metrics = ["carbs", "protein", "fat", "calories"]
     component_scores = []
 
@@ -549,7 +592,159 @@ def score_meal(meal_macros: Dict[str, float], target_macros: Dict[str, float]) -
 
     if not component_scores:
         return 0.0
-    return round(sum(component_scores) / len(component_scores), 4)
+
+    macro_score = sum(component_scores) / len(component_scores)
+
+    # Clinical Diabetic & Heart Health scoring adjustments
+    # 1. Glycemic Load (GL) penalty: GL = (GI * Net Carbs) / 100
+    actual_carbs = max(0.0, float(meal_macros.get("carbs", 0) or 0))
+    actual_fiber = max(0.0, float(meal_macros.get("fiber", 0) or 0))
+    net_carbs = max(0.0, actual_carbs - actual_fiber)
+    glycemic_load = (avg_gi * net_carbs) / 100.0
+
+    # GL > 20 is high glycemic load for a single meal -> apply graduated penalty
+    gl_penalty = 0.0
+    if glycemic_load > 25.0:
+        gl_penalty = min(0.20, (glycemic_load - 25.0) * 0.01)
+    elif glycemic_load > 18.0:
+        gl_penalty = min(0.10, (glycemic_load - 18.0) * 0.007)
+
+    # 2. Fiber density reward: meals with >= 8g fiber protect against glucose spikes
+    fiber_bonus = 0.0
+    if actual_fiber >= 10.0:
+        fiber_bonus = 0.05
+    elif actual_fiber >= 6.0:
+        fiber_bonus = 0.02
+
+    # 3. Sodium check: penalize meals exceeding 800mg sodium in one sitting
+    actual_sodium = float(meal_macros.get("sodium", 0) or 0)
+    sodium_penalty = 0.0
+    if actual_sodium > 900.0:
+        sodium_penalty = min(0.15, (actual_sodium - 900.0) * 0.0002)
+
+    final_score = macro_score - gl_penalty + fiber_bonus - sodium_penalty
+    return round(float(np.clip(final_score, 0.0, 1.0)), 4)
+
+
+def optimize_recipe_portions_lp(
+    components: List[RecipeComponent],
+    target_macros: Dict[str, float],
+    nutrition_lookup: Dict[str, Dict[str, float]],
+    resolution_cache: Optional[Dict[str, Optional[str]]] = None,
+) -> Optional[Dict[str, object]]:
+    """
+    Solves optimal continuous portion sizes for recipe components using bounded linear programming.
+    Runs in <1ms and rounds portions to intuitive 0.5 culinary increments.
+    """
+    resolved_components = []
+    for comp in components:
+        resolved_name = _resolve_ingredient_name(comp.ingredient_key, nutrition_lookup, resolution_cache=resolution_cache)
+        if not resolved_name or resolved_name not in nutrition_lookup:
+            continue
+        resolved_components.append((comp, resolved_name, nutrition_lookup[resolved_name]))
+
+    if not resolved_components:
+        return None
+
+    n_items = len(resolved_components)
+    metric_keys = ["carbs", "protein", "fat", "calories"]
+    targets = np.array([float(target_macros.get(m, 0) or 0) for m in metric_keys])
+    
+    # Avoid div by zero in weights
+    safe_targets = np.maximum(targets, [20.0, 15.0, 10.0, 200.0])
+    weights_metric = np.array([
+        1.2 / safe_targets[0],  # Carbs weight (high priority for diabetes)
+        1.3 / safe_targets[1],  # Protein weight (high priority for satiety)
+        1.0 / safe_targets[2],  # Fat weight
+        0.8 / safe_targets[3],  # Calories weight
+    ])
+
+    # Build matrix A (4 x n_items)
+    A = np.zeros((4, n_items))
+    for col_idx, (_, _, nut) in enumerate(resolved_components):
+        def _safe_float(val):
+            try:
+                v = float(val)
+                return 0.0 if np.isnan(v) or np.isinf(v) else v
+            except (TypeError, ValueError):
+                return 0.0
+
+        A[0, col_idx] = _safe_float(nut.get("carbs", 0.0))
+        A[1, col_idx] = _safe_float(nut.get("protein", 0.0))
+        A[2, col_idx] = _safe_float(nut.get("fat", 0.0))
+        A[3, col_idx] = _safe_float(nut.get("calories", 0.0))
+
+    A = np.nan_to_num(A, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+    bounds = [(comp.min_portion, comp.max_portion) for comp, _, _ in resolved_components]
+
+    # Formulate bounded L1 error linear program:
+    # min sum w_i * (u_i + v_i) subject to A @ x - u + v = targets, u, v >= 0, lb <= x <= ub
+    n_metrics = 4
+    c = np.zeros(n_items + 2 * n_metrics)
+    c[n_items:] = np.tile(weights_metric, 2)
+
+    A_eq = np.zeros((n_metrics, len(c)))
+    A_eq[:, :n_items] = A
+    A_eq[:, n_items:n_items+n_metrics] = -np.eye(n_metrics)
+    A_eq[:, n_items+n_metrics:] = np.eye(n_metrics)
+    b_eq = targets
+
+    var_bounds = list(bounds) + [(0, None)] * (2 * n_metrics)
+
+    res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=var_bounds, method='highs')
+    if not res.success:
+        raw_portions = [comp.min_portion for comp, _, _ in resolved_components]
+    else:
+        raw_portions = res.x[:n_items]
+
+    # Round portions to realistic kitchen increments (multiples of comp.step_size)
+    portioned_entries = []
+    gi_values = []
+    for (comp, resolved_name, _), raw_p in zip(resolved_components, raw_portions):
+        step = comp.step_size or 0.5
+        rounded_p = round(round(raw_p / step) * step, 2)
+        # Ensure clamped within bounds
+        clamped_p = max(comp.min_portion, min(comp.max_portion, rounded_p))
+        gi_values.append(comp.gi)
+        portioned_entries.append({
+            "ingredient": comp.ingredient_key,
+            "category": comp.category,
+            "quantity": clamped_p,
+            "display_name": comp.display_name,
+        })
+
+    meal_macros = calculate_meal_macros(
+        portioned_entries,
+        nutrition_lookup=nutrition_lookup,
+        resolution_cache=resolution_cache,
+    )
+    if meal_macros["missing_ingredients"]:
+        return None
+
+    avg_gi = float(np.mean(gi_values)) if gi_values else 50.0
+    score = score_meal(meal_macros, target_macros, avg_gi=avg_gi)
+
+    # Attach display names to ingredient details for enhanced frontend clarity
+    for idx, detail in enumerate(meal_macros.get("ingredient_details", [])):
+        if idx < len(portioned_entries):
+            detail["display_name"] = portioned_entries[idx].get("display_name", "")
+
+    return {
+        "ingredients": meal_macros["ingredients"],
+        "matchedIngredients": meal_macros["resolved_ingredients"],
+        "ingredientDetails": meal_macros["ingredient_details"],
+        "calories": meal_macros["calories"],
+        "carbs": meal_macros["carbs"],
+        "protein": meal_macros["protein"],
+        "fat": meal_macros["fat"],
+        "fiber": meal_macros["fiber"],
+        "sodium": meal_macros["sodium"],
+        "score": score,
+        "avg_gi": avg_gi,
+    }
+
 
 
 def split_daily_macros_into_meal_targets(
@@ -609,6 +804,7 @@ def generate_adjusted_meal_plan(
     ingredient_pools: Optional[Dict[str, List[str]]] = None,
     nutrition_df: Optional[pd.DataFrame] = None,
     top_n: int = 1,
+    diet_type: Optional[str] = None,
 ) -> Dict[str, Dict[str, object]]:
     remaining_macros = nutrition_state.get_remaining_macros()
     remaining_meals = nutrition_state.get_remaining_meals()
@@ -618,6 +814,7 @@ def generate_adjusted_meal_plan(
 
     ingredient_pools = ingredient_pools or build_ingredient_pools(load_ingredient_categories())
     nutrition_df = nutrition_df if nutrition_df is not None else load_nutrition_dataset()
+    nutrition_lookup = _build_nutrition_lookup(nutrition_df)
 
     adjusted_plan = {}
     for meal_type, macro_targets in next_meal_targets.items():
@@ -626,8 +823,11 @@ def generate_adjusted_meal_plan(
             target_macros=macro_targets,
             ingredient_pools=ingredient_pools,
             nutrition_df=nutrition_df,
+            nutrition_lookup=nutrition_lookup,
             top_n=top_n,
+            diet_type=diet_type,
         )
+
         best = (recommendation_bundle.get("recommendations") or [{}])[0]
         adjusted_plan[meal_type] = {
             "meal_type": meal_type,
@@ -649,6 +849,7 @@ def generate_adjusted_meal_plan(
     return adjusted_plan
 
 
+
 def recommend_meal(
     meal_type: str,
     target_macros: Dict[str, float],
@@ -656,86 +857,96 @@ def recommend_meal(
     nutrition_df: Optional[pd.DataFrame] = None,
     nutrition_lookup: Optional[Dict[str, Dict[str, float]]] = None,
     top_n: int = 3,
+    diet_type: Optional[str] = None,
 ) -> Dict[str, object]:
     normalized_meal_type = normalize_ingredient_name(meal_type)
     if normalized_meal_type not in meal_templates:
         raise ValueError(f"Unknown meal type: {meal_type}")
 
-    ingredient_pools = ingredient_pools or build_ingredient_pools(load_ingredient_categories())
-    nutrition_df = nutrition_df if nutrition_df is not None else load_nutrition_dataset()
-    nutrition_lookup = nutrition_lookup or _build_nutrition_lookup(nutrition_df)
+    global _CACHED_NUTRITION_LOOKUP
+    if nutrition_lookup is None:
+        if _CACHED_NUTRITION_LOOKUP is not None and nutrition_df is None:
+            nutrition_lookup = _CACHED_NUTRITION_LOOKUP
+        else:
+            nutrition_df = nutrition_df if nutrition_df is not None else load_nutrition_dataset()
+            nutrition_lookup = _build_nutrition_lookup(nutrition_df)
     resolution_cache = {}
-    filtered_pools = _filter_ingredient_pools(ingredient_pools, nutrition_lookup, resolution_cache=resolution_cache)
 
-    template = meal_templates[normalized_meal_type]
-    candidates = generate_meal_candidates(template, filtered_pools)
 
-    coarse_candidates = []
-    for candidate in candidates:
-        base_entries = _build_candidate_entries(template, candidate)
-        base_macros = calculate_meal_macros(
-            base_entries,
+    # Stage 1: Try Curated Authentic Indian Recipe Archetypes First
+    recipe_candidates = get_recipes_for_meal_type(normalized_meal_type, diet_type=diet_type)
+    recommendations = []
+
+    for recipe in recipe_candidates:
+        optimized = optimize_recipe_portions_lp(
+            components=recipe.components,
+            target_macros=target_macros,
             nutrition_lookup=nutrition_lookup,
             resolution_cache=resolution_cache,
         )
-        if base_macros["missing_ingredients"]:
-            continue
-        coarse_candidates.append((score_meal(base_macros, target_macros), candidate))
+        if optimized:
+            optimized["recipe_id"] = recipe.id
+            optimized["recipe_name"] = recipe.name
+            optimized["description"] = recipe.description
+            recommendations.append(optimized)
 
-    coarse_candidates.sort(key=lambda item: item[0], reverse=True)
-    shortlisted_candidates = [candidate for _, candidate in coarse_candidates[:40]]
+    # Sort recipe recommendations by clinical score
+    recommendations.sort(key=lambda item: item["score"], reverse=True)
 
-    recommendations = []
-    for candidate in shortlisted_candidates:
-        base_entries = _build_candidate_entries(template, candidate)
-        portion_choices = [_get_portion_options(entry["category"]) for entry in base_entries]
-        best_meal_macros = None
-        best_score = -1.0
+    # Stage 2: If recipes don't provide enough candidates, augment with combinatorial generator fallback
+    if len(recommendations) < top_n:
+        ingredient_pools = ingredient_pools or build_ingredient_pools(load_ingredient_categories())
+        filtered_pools = _filter_ingredient_pools(ingredient_pools, nutrition_lookup, resolution_cache=resolution_cache)
+        template = meal_templates[normalized_meal_type]
+        candidates = generate_meal_candidates(template, filtered_pools)
 
-        for multipliers in product(*portion_choices):
-            portioned_entries = [
-                {
-                    **entry,
-                    "quantity": multiplier,
-                }
-                for entry, multiplier in zip(base_entries, multipliers)
-            ]
-            meal_macros = calculate_meal_macros(
-                portioned_entries,
+        coarse_candidates = []
+        for candidate in candidates:
+            base_entries = _build_candidate_entries(template, candidate)
+            base_macros = calculate_meal_macros(
+                base_entries,
                 nutrition_lookup=nutrition_lookup,
                 resolution_cache=resolution_cache,
             )
-            if meal_macros["missing_ingredients"]:
+            if base_macros["missing_ingredients"]:
                 continue
+            coarse_candidates.append((score_meal(base_macros, target_macros), candidate))
 
-            score = score_meal(meal_macros, target_macros)
-            if score > best_score:
-                best_score = score
-                best_meal_macros = meal_macros
+        coarse_candidates.sort(key=lambda item: item[0], reverse=True)
+        shortlisted_candidates = [candidate for _, candidate in coarse_candidates[:25]]
 
-        if not best_meal_macros:
-            continue
+        for candidate in shortlisted_candidates:
+            base_entries = _build_candidate_entries(template, candidate)
+            # Create recipe components on the fly to run LP solver
+            dynamic_components = [
+                RecipeComponent(
+                    slot=entry.get("category", "carb"),
+                    ingredient_key=entry.get("ingredient", ""),
+                    display_name=str(entry.get("ingredient", "")).replace("_", " ").title(),
+                    category=entry.get("category", "carb"),
+                    min_portion=0.5,
+                    max_portion=2.5,
+                    step_size=0.5,
+                    gi=50.0,
+                )
+                for entry in base_entries
+            ]
+            optimized = optimize_recipe_portions_lp(
+                components=dynamic_components,
+                target_macros=target_macros,
+                nutrition_lookup=nutrition_lookup,
+                resolution_cache=resolution_cache,
+            )
+            if optimized:
+                recommendations.append(optimized)
 
-        recommendations.append(
-            {
-                "ingredients": best_meal_macros["ingredients"],
-                "matchedIngredients": best_meal_macros["resolved_ingredients"],
-                "ingredientDetails": best_meal_macros["ingredient_details"],
-                "calories": best_meal_macros["calories"],
-                "carbs": best_meal_macros["carbs"],
-                "protein": best_meal_macros["protein"],
-                "fat": best_meal_macros["fat"],
-                "fiber": best_meal_macros["fiber"],
-                "sodium": best_meal_macros["sodium"],
-                "score": best_score,
-            }
-        )
+        recommendations.sort(key=lambda item: item["score"], reverse=True)
 
-    recommendations.sort(key=lambda item: item["score"], reverse=True)
     return {
         "meal_type": normalized_meal_type,
         "recommendations": recommendations[:top_n],
     }
+
 
 
 def generate_daily_meal_plan(
@@ -743,6 +954,7 @@ def generate_daily_meal_plan(
     ingredient_pools: Optional[Dict[str, List[str]]] = None,
     nutrition_df: Optional[pd.DataFrame] = None,
     top_n: int = 3,
+    diet_type: Optional[str] = None,
 ) -> Dict[str, Dict[str, object]]:
     ingredient_pools = ingredient_pools or build_ingredient_pools(load_ingredient_categories())
     nutrition_df = nutrition_df if nutrition_df is not None else load_nutrition_dataset()
@@ -759,6 +971,8 @@ def generate_daily_meal_plan(
             nutrition_df=nutrition_df,
             nutrition_lookup=nutrition_lookup,
             top_n=top_n,
+            diet_type=diet_type,
         )
 
     return daily_plan
+

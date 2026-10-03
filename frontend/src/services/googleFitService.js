@@ -40,7 +40,19 @@ export const syncGoogleFitActivity = async (days = 7) => {
 
 export const getGoogleFitActivity = async (days = 7) => {
     const userId = getUserId();
+    // Prioritize unified wearable endpoint (which returns Fitbit if connected)
+    try {
+        const unifiedUrl = `${API_BASE_URL}/api/wearable/activity?userId=${encodeURIComponent(userId)}&days=${encodeURIComponent(days)}`;
+        const payload = await getJson(unifiedUrl);
+        if (payload && Array.isArray(payload.items) && payload.items.length > 0) {
+            return payload;
+        }
+    } catch (e) {
+        // Fall back to direct google-fit activity endpoint if unified fails
+    }
+
     const url = `${API_BASE_URL}/api/google-fit/activity?userId=${encodeURIComponent(userId)}&days=${encodeURIComponent(days)}`;
     return getJson(url);
 };
+
 

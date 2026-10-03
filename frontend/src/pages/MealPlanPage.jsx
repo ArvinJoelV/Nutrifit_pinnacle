@@ -55,19 +55,33 @@ const RecommendationCard = ({ item, index }) => (
     <div className="rounded-[1.6rem] border border-emerald-400/10 bg-linear-to-br from-emerald-400/10 via-white/[0.03] to-transparent p-5">
         <div className="flex items-start justify-between gap-4">
             <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-200/60">Option {index + 1}</div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-200/60">
+                    Option {index + 1}
+                </div>
+                {item.recipe_name ? (
+                    <div className="mt-1">
+                        <h3 className="text-base font-black text-white">{item.recipe_name}</h3>
+                        {item.description ? (
+                            <p className="mt-0.5 text-xs text-white/50 leading-relaxed max-w-xl">{item.description}</p>
+                        ) : null}
+                    </div>
+                ) : null}
                 <div className="mt-3 grid gap-3">
+
                     {(item.ingredientDetails?.length ? item.ingredientDetails : item.ingredients?.map((ingredient) => ({ ingredient })))?.map((detail, itemIndex) => (
                         <div
                             key={`${detail.ingredient}-${itemIndex}-${index}`}
                             className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
                         >
                             <div>
-                                <div className="text-sm font-bold text-white/90">{String(detail.ingredient || '').replace(/_/g, ' ')}</div>
-                                {detail.matched_food ? (
+                                <div className="text-sm font-bold text-white/90">
+                                    {detail.display_name || String(detail.ingredient || '').replace(/_/g, ' ')}
+                                </div>
+                                {detail.matched_food && detail.matched_food.toLowerCase() !== (detail.display_name || '').toLowerCase() ? (
                                     <div className="text-xs text-white/40">Matched to {String(detail.matched_food).replace(/_/g, ' ')}</div>
                                 ) : null}
                             </div>
+
                             <div className="rounded-full border border-amber-200/15 bg-amber-200/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-amber-100/80">
                                 {formatQuantity(detail)}
                             </div>

@@ -1,9 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { auth, googleProvider } from '../config/firebase';
-import { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { db } from '../config/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { auth, googleProvider, db } from '../config/firebase';
+import {
+  signInWithPopup,
+  signInWithRedirect,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  getRedirectResult,
+} from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 const LoginPage = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -19,11 +25,63 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const handleAuthSuccess = async (user) => {
+    if (!user) return;
+    try {
+      setLoading(true);
+      await setDoc(
+        doc(db, 'users', user.uid),
+        {
+          name: user.displayName || '',
+          email: user.email || '',
+          avatar: user.photoURL || '',
+          lastLogin: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      try {
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        if (userSnap.exists() && userSnap.data().profile_complete) {
+          navigate('/home', { replace: true });
+          return;
+        }
+      } catch (checkErr) {
+        console.debug('Profile check error:', checkErr);
+      }
+      navigate('/onboarding/welcome', { replace: true });
+    } catch (err) {
+      console.error('Error during post-auth processing:', err);
+      navigate('/onboarding/welcome', { replace: true });
+    }
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('guest') === 'true') {
       handleGuestLogin();
+      return;
     }
+
+    // 1. Process any pending redirect authentication
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          handleAuthSuccess(result.user);
+        }
+      })
+      .catch((err) => {
+        console.debug('Redirect auth check:', err);
+      });
+
+    // 2. React to active user session changes immediately
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (currentUser && !currentUser.isAnonymous) {
+        handleAuthSuccess(currentUser);
+      }
+    });
+
+    return () => unsubscribe();
   }, [location]);
 
   const styles = {
@@ -264,19 +322,24 @@ const LoginPage = () => {
     try {
       setLoading(true);
       setError('');
+      // Primary: signInWithPopup is instant, reliable on localhost, and avoids cross-origin storage partitioning
       const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-
-      await setDoc(doc(db, 'users', user.uid), {
-        name: user.displayName,
-        email: user.email,
-        createdAt: new Date().toISOString(),
-        avatar: user.photoURL,
-      }, { merge: true });
-
-      navigate('/onboarding/start');
+      if (result?.user) {
+        await handleAuthSuccess(result.user);
+      }
     } catch (authError) {
-      setError(authError.message || 'Failed to sign in with Google');
+      console.error('Google sign in error:', authError);
+      // Fallback: If the browser strictly blocked popup windows, gracefully fall back to redirect
+      if (authError.code === 'auth/popup-blocked') {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr) {
+          setError(redirectErr.message || 'Failed to sign in with Google');
+        }
+      } else if (authError.code !== 'auth/popup-closed-by-user') {
+        setError(authError.message || 'Failed to sign in with Google');
+      }
       setLoading(false);
     }
   };
@@ -318,10 +381,24 @@ const LoginPage = () => {
     }
   };
 
-  const handleGuestLogin = () => {
-    const guestUserId = `guest_${Date.now()}`;
-    localStorage.setItem('guest_session', guestUserId);
-    navigate('/onboarding/start?guest=true');
+  const handleGuestLogin = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const guestUserId = `guest_${Date.now()}`;
+      localStorage.setItem('guest_session', guestUserId);
+      try {
+        const { signInAnonymously } = await import('firebase/auth');
+        await signInAnonymously(auth);
+      } catch (authErr) {
+        console.debug('Anonymous auth fallback mode:', authErr);
+      }
+      navigate('/onboarding/welcome');
+    } catch (err) {
+      setError('Could not start guest session');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleMouseEnter = (button) => {
@@ -409,6 +486,7 @@ const LoginPage = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
+                  autoComplete="email"
                   style={styles.input}
                   required
                   disabled={loading}
@@ -422,6 +500,7 @@ const LoginPage = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="........"
+                  autoComplete={isLogin ? "current-password" : "new-password"}
                   style={styles.input}
                   required
                   disabled={loading}

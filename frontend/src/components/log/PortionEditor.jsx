@@ -39,9 +39,34 @@ const PortionEditor = ({ items, onUpdateItem }) => {
                             )}
                             <div>
                                 <h4 className="font-bold text-lg">{item.name}</h4>
-                                <p className="text-white/40 text-xs font-bold uppercase tracking-widest">
-                                    {Math.round(item.calories * (item.multiplier || 1))} kcal
-                                </p>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-white/40 text-xs font-bold uppercase tracking-widest">
+                                        {Math.round(item.calories * (item.multiplier || 1))} kcal
+                                    </p>
+                                    {item.mass_g != null && (
+                                        <span className="text-xs font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-md border border-amber-400/20">
+                                            ⚖️ {Math.round(item.mass_g * (item.multiplier || 1))}g
+                                        </span>
+                                    )}
+                                </div>
+                                {item.mass_g != null && Array.isArray(item.mass_range_g) && (
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className="text-[10px] text-white/40">
+                                            Range: {Math.round(item.mass_range_g[0] * (item.multiplier || 1))}–{Math.round(item.mass_range_g[1] * (item.multiplier || 1))}g
+                                        </span>
+                                        {item.estimated_volume_cm3 != null && (
+                                            <span className="text-[10px] text-white/50 bg-white/5 px-1.5 py-0.5 rounded">
+                                                {Math.round(item.estimated_volume_cm3 * (item.multiplier || 1))} cm³
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                                {item.occlusion_probability > 0.15 && (
+                                    <p className="text-[10px] text-amber-300/80 mt-1 flex items-center gap-1">
+                                        <span>⚠️</span>
+                                        <span>{Math.round(item.occlusion_probability * 100)}% occluded (reconstructed)</span>
+                                    </p>
+                                )}
                                 {item.detectedLabel && (
                                     <p className="text-[10px] text-primary/80 mt-1 uppercase tracking-wider">
                                         Detected: {item.detectedLabel}

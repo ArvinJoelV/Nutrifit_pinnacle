@@ -3,6 +3,7 @@ import os
 import re
 import uuid
 import ast
+import time
 from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, redirect, request
 from flask_cors import CORS
@@ -13,7 +14,17 @@ from google.api_core.client_options import ClientOptions
 from agents import HealthCoordinatorAgent
 from detector import process_image_with_labels
 from dotenv import load_dotenv
-from fit_store import get_daily_metrics, get_tokens, init_db, save_daily_metrics, save_tokens
+from fit_store import get_daily_metrics, get_fitbit_tokens, get_tokens, init_db, save_daily_metrics, save_fitbit_tokens, save_tokens
+from fitbit_service import (
+    FitbitConfigError,
+    build_auth_url as fitbit_build_auth_url,
+    ensure_valid_tokens as fitbit_ensure_valid_tokens,
+    exchange_code_for_tokens as fitbit_exchange_code_for_tokens,
+    fetch_daily_activity as fitbit_fetch_daily_activity,
+    get_frontend_redirect as fitbit_get_frontend_redirect,
+    is_fitbit_configured,
+    parse_state as fitbit_parse_state,
+)
 from grok_timeline_service import generate_eat_effect_timeline
 from meal_recommendation_service import (
     DailyNutritionState,
@@ -62,6 +73,13 @@ os.makedirs(app.config["CROPPED_FOLDER"], exist_ok=True)
 init_db()
 agent_coordinator = HealthCoordinatorAgent(model=model)
 
+@app.after_request
+def add_no_cache_headers(response):
+    if response is not None and hasattr(response, "headers"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/api/health", methods=["GET"])
@@ -71,7 +89,26 @@ def health():
             "ok": True,
             "modelReady": bool(model),
             "googleFitReady": is_google_fit_configured(),
+            "fitbitReady": is_fitbit_configured(),
             "googleFitTimezone": get_fit_timezone_name(),
+        }
+    )
+
+
+@app.route("/api/edge-node/status", methods=["GET"])
+def edge_node_status():
+    from inference.edge_provider import EdgeNodeInferenceProvider
+    load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
+    provider = EdgeNodeInferenceProvider()
+    available = provider.is_available()
+    telemetry = provider.get_telemetry()
+    return jsonify(
+        {
+            "ok": True,
+            "enabled": os.getenv("EDGE_NODE_ENABLED", "false").lower() in ("true", "1", "yes"),
+            "connected": available,
+            "url": provider.base_url,
+            "telemetry": telemetry,
         }
     )
 
@@ -167,6 +204,8 @@ def google_fit_connect():
 @app.route("/api/google-fit/callback", methods=["GET"])
 def google_fit_callback():
     frontend_redirect = get_frontend_redirect()
+    if ":5174" in frontend_redirect:
+        frontend_redirect = frontend_redirect.replace(":5174", ":5173")
     error = request.args.get("error")
     if error:
         return redirect(f"{frontend_redirect}?googleFit=error&reason={error}")
@@ -253,6 +292,132 @@ def google_fit_activity():
             "items": rows,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Fitbit API routes
+# ---------------------------------------------------------------------------
+
+@app.route("/api/fitbit/connect", methods=["POST"])
+def fitbit_connect():
+    user_id = _parse_user_id()
+    if not user_id:
+        return _json_error("userId is required", 400)
+    try:
+        return jsonify({"authUrl": fitbit_build_auth_url(user_id)})
+    except FitbitConfigError as exc:
+        return _json_error(str(exc), 500)
+
+
+@app.route("/api/fitbit/callback", methods=["GET"])
+def fitbit_callback():
+    frontend_redirect = fitbit_get_frontend_redirect()
+    if ":5174" in frontend_redirect:
+        frontend_redirect = frontend_redirect.replace(":5174", ":5173")
+    error = request.args.get("error")
+    if error:
+        return redirect(f"{frontend_redirect}?fitbit=error&reason={error}")
+
+    code = request.args.get("code")
+    state = request.args.get("state")
+    if not code or not state:
+        return _json_error("Missing OAuth code or state", 400)
+
+    try:
+        state_payload = fitbit_parse_state(state)
+        user_id = str(state_payload["user_id"])
+        tokens = fitbit_exchange_code_for_tokens(code)
+        save_fitbit_tokens(user_id, tokens)
+    except Exception as exc:
+        return redirect(f"{frontend_redirect}?fitbit=error&reason={str(exc)}")
+
+    return redirect(f"{frontend_redirect}?fitbit=connected&userId={user_id}")
+
+
+@app.route("/api/fitbit/sync", methods=["POST"])
+def fitbit_sync():
+    user_id = _parse_user_id()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    days = _parse_days()
+    daily_rows = None
+
+    # Try Fitbit (Google Health) token
+    try:
+        tokens = get_fitbit_tokens(user_id)
+        if tokens:
+            valid_tokens = fitbit_ensure_valid_tokens(tokens)
+            if valid_tokens.get("access_token") != tokens.get("access_token") or valid_tokens.get("expires_at") != tokens.get("expires_at"):
+                save_fitbit_tokens(user_id, valid_tokens)
+            daily_rows = fitbit_fetch_daily_activity(valid_tokens["access_token"], days=days)
+    except Exception:
+        pass
+
+    if not daily_rows:
+        return _json_error("Could not fetch Fitbit data. Please reconnect your Fitbit.", 500)
+
+    save_daily_metrics(user_id, daily_rows)
+    return jsonify({"ok": True, "userId": user_id, "daysSynced": len(daily_rows), "source": "fitbit", "items": daily_rows})
+
+
+@app.route("/api/fitbit/activity", methods=["GET"])
+def fitbit_activity():
+    user_id = _parse_user_id()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    days = _parse_days(default=1)
+    live = (request.args.get("live") or "true").strip().lower() not in {"0", "false", "no"}
+    rows = []
+
+    if live:
+        # Check if user has connected Fitbit tokens
+        try:
+            tokens = get_fitbit_tokens(user_id)
+            if tokens:
+                valid_tokens = fitbit_ensure_valid_tokens(tokens)
+                if valid_tokens.get("access_token") != tokens.get("access_token") or valid_tokens.get("expires_at") != tokens.get("expires_at"):
+                    save_fitbit_tokens(user_id, valid_tokens)
+                daily_rows = fitbit_fetch_daily_activity(valid_tokens["access_token"], days=days)
+                save_daily_metrics(user_id, daily_rows)
+                rows = daily_rows
+        except Exception:
+            pass
+
+    if not rows:
+        end_date = datetime.now(timezone.utc).date()
+        start_date = end_date - timedelta(days=days - 1)
+        rows = get_daily_metrics(user_id, start_date.isoformat(), end_date.isoformat(), source="fitbit")
+    else:
+        start_date = min(datetime.fromisoformat(row["activity_date"]).date() for row in rows)
+        end_date = max(datetime.fromisoformat(row["activity_date"]).date() for row in rows)
+
+    return jsonify({
+        "ok": True,
+        "userId": user_id,
+        "days": days,
+        "source": "fitbit",
+        "startDate": start_date.isoformat(),
+        "endDate": end_date.isoformat(),
+        "items": rows,
+    })
+
+
+@app.route("/api/wearable/activity", methods=["GET"])
+def wearable_activity():
+    """Unified wearable activity endpoint.
+    Prioritizes Fitbit if the user has connected Fitbit.
+    Falls back to Google Fit only if Fitbit is not connected.
+    """
+    user_id = _parse_user_id()
+    if not user_id:
+        return _json_error("userId is required", 400)
+
+    fitbit_tokens = get_fitbit_tokens(user_id)
+    if fitbit_tokens:
+        return fitbit_activity()
+    return google_fit_activity()
 
 
 @app.route("/api/generate-meal-plan", methods=["POST"])
@@ -608,6 +773,174 @@ def analyze_meal():
     image_path = os.path.join(app.config["UPLOAD_FOLDER"], unique_filename)
     image_file.save(image_path)
 
+    # 1. Try Physics-Grounded 3D Food Portion Pipeline
+    try:
+        from food_portion.pipeline import FoodPortionPipeline
+        from food_portion.gemini.validator import GeminiValidator
+
+        edge_enabled = os.getenv("EDGE_NODE_ENABLED", "false").lower() in ("true", "1", "yes")
+        pipeline_res = None
+
+        if edge_enabled:
+            try:
+                from inference.edge_provider import EdgeNodeInferenceProvider
+                edge_provider = EdgeNodeInferenceProvider()
+                if edge_provider.is_available():
+                    app.logger.info("Executing 3D portion pipeline on RS PRO C100 Edge Node...")
+                    local_dets = None
+                    try:
+                        from food_portion.detection.yolo_detector import FoodDetector
+                        det_engine = FoodDetector()
+                        raw_dets = det_engine.predict(image_path)
+                        if raw_dets:
+                            local_dets = [
+                                {
+                                    "class_name": d.class_name,
+                                    "confidence": float(d.confidence),
+                                    "bbox": [float(v) for v in d.bbox],
+                                    "is_container": bool(d.is_container),
+                                }
+                                for d in raw_dets
+                            ]
+                    except Exception as det_err:
+                        app.logger.debug("Local pre-detection skipped: %s", det_err)
+
+                    edge_raw = edge_provider.process_portion(image_path, detections=local_dets)
+                    if edge_raw and edge_raw.get("items"):
+                        t_gem_start = time.perf_counter()
+                        # Run semantic & macro validation with Gemini
+                        gemini_val = GeminiValidator(model_instance=model)
+                        val_res = gemini_val.validate(edge_raw.get("items", []), edge_raw.get("scale_calibration"), image_path)
+                        t_gem_dur = (time.perf_counter() - t_gem_start) * 1000
+
+                        val_items = val_res.get("items") or val_res.get("item_macros") or []
+                        gemini_items_by_id = {}
+                        gemini_items_by_name = {}
+                        for gitm in val_items:
+                            if "id" in gitm:
+                                try:
+                                    gemini_items_by_id[int(gitm["id"])] = gitm
+                                except Exception:
+                                    pass
+                            gemini_items_by_name[gitm.get("food", "").lower()] = gitm
+
+                        merged_items = []
+                        used_gemini_ids = set()
+
+                        for idx, e_item in enumerate(edge_raw.get("items", [])):
+                            # Find matching gemini item by id, name, or position
+                            g_match = gemini_items_by_id.get(idx)
+                            if not g_match:
+                                g_match = gemini_items_by_name.get(e_item.get("food", "").lower()) or gemini_items_by_name.get(e_item.get("name", "").lower())
+                            if not g_match and idx < len(val_items) and id(val_items[idx]) not in used_gemini_ids:
+                                g_match = val_items[idx]
+
+                            if g_match:
+                                used_gemini_ids.add(id(g_match))
+                            else:
+                                g_match = {}
+
+                            refined_name = g_match.get("food") or g_match.get("name") or e_item.get("name") or e_item.get("food", "Food Item")
+                            mass = float(g_match.get("mass_g") or e_item.get("mass_g") or 50.0)
+                            cals = int(g_match.get("calories") or e_item.get("calories") or round(mass * 1.5))
+
+                            merged_item = dict(e_item)
+                            merged_item.update({
+                                "name": refined_name,
+                                "food": refined_name,
+                                "mass_g": mass,
+                                "mass_range_g": g_match.get("mass_range_g") or e_item.get("mass_range_g") or [int(mass * 0.8), int(mass * 1.2)],
+                                "calories": cals,
+                                "protein": g_match.get("protein", e_item.get("protein", int(round(mass * 0.07)))),
+                                "carbs": g_match.get("carbs", e_item.get("carbs", int(round(mass * 0.22)))),
+                                "fat": g_match.get("fat", e_item.get("fat", int(round(mass * 0.04)))),
+                                "fiber": g_match.get("fiber", e_item.get("fiber", 1)),
+                                "confidence": g_match.get("confidence") or e_item.get("confidence", 0.85),
+                                "is_supplemented": False,
+                            })
+                            merged_items.append(merged_item)
+
+                        # Supplement any extra items detected by Gemini that CV missed (e.g. gravies/curries/meats)
+                        for g_extra in val_items:
+                            if id(g_extra) in used_gemini_ids:
+                                continue
+                            if g_extra.get("is_supplemented") or (isinstance(g_extra.get("id"), int) and g_extra["id"] >= len(edge_raw.get("items", []))):
+                                extra_name = g_extra.get("food") or g_extra.get("name") or "Side Dish"
+                                extra_mass = float(g_extra.get("mass_g") or 60.0)
+                                extra_cals = int(g_extra.get("calories") or round(extra_mass * 1.5))
+                                merged_items.append({
+                                    "name": extra_name,
+                                    "food": extra_name,
+                                    "mass_g": extra_mass,
+                                    "mass_range_g": g_extra.get("mass_range_g") or [int(extra_mass * 0.8), int(extra_mass * 1.2)],
+                                    "visible_area_cm2": 0.0,
+                                    "estimated_total_area_cm2": 0.0,
+                                    "estimated_volume_cm3": 0.0,
+                                    "occlusion_probability": 0.0,
+                                    "confidence": g_extra.get("confidence", 0.85),
+                                    "calories": extra_cals,
+                                    "protein": g_extra.get("protein", int(round(extra_mass * 0.05))),
+                                    "carbs": g_extra.get("carbs", int(round(extra_mass * 0.15))),
+                                    "fat": g_extra.get("fat", int(round(extra_mass * 0.03))),
+                                    "fiber": g_extra.get("fiber", 1),
+                                    "image": None,
+                                    "multiplier": 1.0,
+                                    "is_supplemented": True,
+                                })
+
+                        edge_raw["items"] = merged_items
+                        edge_raw["gemini_validation"] = val_res
+                        edge_raw["totalCalories"] = sum(it.get("calories", 0) for it in merged_items)
+                        edge_raw["total_mass_g"] = sum(it.get("mass_g", 0) for it in merged_items)
+                        edge_raw["execution_target"] = "⚡ RS PRO C100 (Edge GPU)"
+
+                        # Append Stage 9 to pipeline_trace if trace exists
+                        if "pipeline_trace" in edge_raw and isinstance(edge_raw["pipeline_trace"], list):
+                            clean_trace = [s for s in edge_raw["pipeline_trace"] if s.get("stage") != 9]
+                            clean_trace.append({
+                                "stage": 9,
+                                "name": "Gemini Semantic & Macro Validation",
+                                "file": "backend/food_portion/gemini/validator.py",
+                                "class": "GeminiValidator",
+                                "function": "validate(items, scale_calibration, image_path)",
+                                "duration_ms": round(t_gem_dur, 1),
+                                "input": {"validated_items_count": len(edge_raw.get("items", []))},
+                                "output": {
+                                    "valid": val_res.get("valid", True),
+                                    "reasoning": val_res.get("reasoning", ""),
+                                    "item_macros": val_items,
+                                },
+                            })
+                            edge_raw["pipeline_trace"] = clean_trace
+                        edge_raw["pipeline_duration_ms"] = round(edge_raw.get("duration_ms", 0.0) + t_gem_dur, 1)
+                        pipeline_res = edge_raw
+            except Exception as edge_exc:
+                app.logger.warning("Edge node execution failed, falling back to local pipeline: %s", edge_exc)
+
+        if pipeline_res is None:
+            portion_pipeline = FoodPortionPipeline(gemini_validator=GeminiValidator(model_instance=model))
+            pipeline_res = portion_pipeline.process(image_path, gemini_model=model)
+
+        p_items = pipeline_res.get("items", [])
+        if p_items:
+            app.logger.info("FoodPortionPipeline successfully processed %d items", len(p_items))
+            return jsonify({
+                "items": p_items,
+                "totalCalories": pipeline_res.get("totalCalories", sum(it.get("calories", 0) for it in p_items)),
+                "total_mass_g": pipeline_res.get("total_mass_g", sum(it.get("mass_g", 0) for it in p_items)),
+                "scale_calibration": pipeline_res.get("scale_calibration"),
+                "scene_assessment": pipeline_res.get("scene_assessment"),
+                "gemini_validation": pipeline_res.get("gemini_validation"),
+                "segmentedImage": pipeline_res.get("segmentedImage") or pipeline_res.get("segmented_image"),
+                "originalImage": image_path.replace("\\", "/"),
+                "pipeline_trace": pipeline_res.get("pipeline_trace", []),
+                "pipeline_duration_ms": pipeline_res.get("pipeline_duration_ms") or pipeline_res.get("duration_ms", 0.0),
+                "execution_target": pipeline_res.get("execution_target", "Local Pipeline"),
+            })
+    except Exception as exc:
+        app.logger.warning("FoodPortionPipeline failed, continuing with legacy fallback: %s", exc)
+
+    # 2. Legacy fallback
     segments, segmented_path = process_image_with_labels(image_path)
     prompt = """
 You are an Indian nutrition analysis AI.

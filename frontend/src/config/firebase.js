@@ -10,13 +10,13 @@ import { getFirestore } from "firebase/firestore";
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyBy4PFRrsA7fh-s1dKj6uiH5FzuRS0OIf4",
-  authDomain: "nutrifit-6926a.firebaseapp.com",
-  projectId: "nutrifit-6926a",
-  storageBucket: "nutrifit-6926a.firebasestorage.app",
-  messagingSenderId: "880728362149",
-  appId: "1:880728362149:web:d7a78ad62a4bec68f7114c",
-  measurementId: "G-6LXJFHX5G3"
+  apiKey: "AIzaSyBszHfZC49C0P4Jjk3ZfQWiyer_VOfQI44",
+  authDomain: "nutrifit-4304d.firebaseapp.com",
+  projectId: "nutrifit-4304d",
+  storageBucket: "nutrifit-4304d.firebasestorage.app",
+  messagingSenderId: "833184429643",
+  appId: "1:833184429643:web:426bbb026144c3b321bfce",
+  measurementId: "G-JJGJGTSGR6"
 };
 
 // Initialize Firebase
@@ -24,5 +24,6 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export { auth, db, googleProvider };

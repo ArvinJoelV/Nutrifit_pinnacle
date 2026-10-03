@@ -50,8 +50,14 @@ const RedirectHandler = ({ children }) => {
         );
     }
 
-    if (!user) {
+    const isGuest = typeof window !== 'undefined' && localStorage.getItem('guest_session');
+
+    if (!user && !isGuest) {
         return <Navigate to="/login" replace />;
+    }
+
+    if (!user && isGuest) {
+        return children;
     }
 
     if (!profileComplete && !window.location.pathname.startsWith('/onboarding')) {

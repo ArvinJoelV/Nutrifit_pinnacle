@@ -218,10 +218,34 @@ def _local_date_from_millis(value, tz):
     return datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc).astimezone(tz).date().isoformat()
 
 
+def _is_wearable_source(source_str: str) -> bool:
+    s = (source_str or "").lower()
+    wearable_keywords = [
+        "fitbit", "watch", "wear", "wrist", "band", "tracker",
+        "garmin", "polar", "whoop", "amazfit", "health_connect",
+        "miband", "galaxy_watch", "pixel_watch", "apple_watch"
+    ]
+    return any(k in s for k in wearable_keywords)
+
+
+def _is_phone_source(source_str: str) -> bool:
+    s = (source_str or "").lower()
+    if _is_wearable_source(s):
+        return False
+    phone_keywords = [
+        "internal_step_counter", "step_detector", "step_counter",
+        "samsung:sm-", "google:pixel", "user_input", "software_step",
+        "motorola", "xiaomi", "oneplus", "oppo", "vivo", "phone", "handset"
+    ]
+    return any(k in s for k in phone_keywords)
+
+
 def _parse_bucket(bucket, tz):
     start_millis = int(bucket.get("startTimeMillis", 0) or 0)
     end_millis = int(bucket.get("endTimeMillis", 0) or 0)
     data_source_ids = []
+    wearable_detected = False
+
     metrics = {
         "activity_date": _local_date_from_millis(start_millis, tz),
         "bucket_start_utc": datetime.fromtimestamp(start_millis / 1000, tz=timezone.utc).isoformat(),
@@ -236,35 +260,60 @@ def _parse_bucket(bucket, tz):
         "avg_heart_rate": None,
         "max_heart_rate": None,
         "min_heart_rate": None,
+        "source": "google_fit",
         "raw_payload": bucket,
     }
 
-    for dataset in bucket.get("dataset", []):
+    # First pass: check if any wearable/watch source exists in this bucket
+    all_datasets = bucket.get("dataset", [])
+    for dataset in all_datasets:
+        ds_id = dataset.get("dataSourceId", "")
+        if _is_wearable_source(ds_id):
+            wearable_detected = True
+        for pt in dataset.get("point", []):
+            pt_origin = pt.get("originDataSourceId", "")
+            if _is_wearable_source(pt_origin):
+                wearable_detected = True
+
+    # Parse datasets with watch preference
+    for dataset in all_datasets:
         source_id = dataset.get("dataSourceId", "")
         if source_id and source_id not in data_source_ids:
             data_source_ids.append(source_id)
-        points = dataset.get("point", [])
-        values = []
-        for point in points:
-            values.extend(point.get("value", []))
 
-        if "step_count.delta" in source_id:
-            metrics["steps"] += int(sum(_extract_number(value) for value in values))
-        elif "calories.expended" in source_id:
-            metrics["calories_burned"] = round(
-                metrics["calories_burned"] + sum(_extract_number(value) for value in values),
-                2,
-            )
-        elif "distance.delta" in source_id:
-            metrics["distance_meters"] = round(
-                metrics["distance_meters"] + sum(_extract_number(value) for value in values),
-                2,
-            )
-        elif "heart_rate.summary" in source_id and values:
-            parsed = [_extract_number(value) for value in values]
-            metrics["avg_heart_rate"] = round(parsed[0], 2) if len(parsed) > 0 else None
-            metrics["max_heart_rate"] = round(parsed[1], 2) if len(parsed) > 1 else None
-            metrics["min_heart_rate"] = round(parsed[2], 2) if len(parsed) > 2 else None
+        points = dataset.get("point", [])
+
+        for point in points:
+            origin_id = point.get("originDataSourceId", "") or source_id
+
+            # Filter: If wearable data exists, drop points originating from phone sensors
+            if wearable_detected and _is_phone_source(origin_id):
+                continue  # Skip phone accelerometer steps
+
+            point_values = point.get("value", [])
+
+            if "step_count.delta" in source_id:
+                metrics["steps"] += int(sum(_extract_number(v) for v in point_values))
+            elif "calories.expended" in source_id:
+                metrics["calories_burned"] = round(
+                    metrics["calories_burned"] + sum(_extract_number(v) for v in point_values),
+                    2,
+                )
+            elif "distance.delta" in source_id:
+                metrics["distance_meters"] = round(
+                    metrics["distance_meters"] + sum(_extract_number(v) for v in point_values),
+                    2,
+                )
+            elif "heart_rate.summary" in source_id and point_values:
+                parsed = [_extract_number(v) for v in point_values]
+                metrics["avg_heart_rate"] = round(parsed[0], 2) if len(parsed) > 0 else None
+                metrics["max_heart_rate"] = round(parsed[1], 2) if len(parsed) > 1 else None
+                metrics["min_heart_rate"] = round(parsed[2], 2) if len(parsed) > 2 else None
+
+    if wearable_detected:
+        metrics["source"] = "fitbit_watch"
+    elif any(_is_phone_source(ds) for ds in data_source_ids):
+        metrics["source"] = "phone_sensor"
 
     return metrics
 

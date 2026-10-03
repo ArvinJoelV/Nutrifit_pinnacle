@@ -1,0 +1,17 @@
+[Unit]
+Description=NutriFit RS PRO C100 Edge Inference Service
+After=network.target
+
+[Service]
+Type=simple
+User=it-dept
+WorkingDirectory=/home/it-dept/edge_node
+ExecStart=/home/it-dept/nutrifit_edge_venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=EDGE_DEVICE=cuda:0
+Environment=EDGE_PORT=8000
+
+[Install]
+WantedBy=multi-user.target

@@ -16,8 +16,19 @@ const ActivityOverview = ({ activity }) => {
                     <h3 className="text-xl font-bold">Activity Data</h3>
                     <p className="text-sm text-white/45 mt-1">Latest synced health metrics</p>
                 </div>
-                <div className="text-xs font-bold uppercase tracking-widest text-white/35">
-                    {activity?.activity_date || 'Not synced'}
+                <div className="flex items-center gap-2">
+                    {activity?.source && (
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            activity.source.includes('fitbit')
+                                ? 'bg-amber-400/15 text-amber-300 border border-amber-400/20'
+                                : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+                        }`}>
+                            {activity.source.includes('fitbit') ? 'Fitbit Watch' : 'Google Fit'}
+                        </span>
+                    )}
+                    <div className="text-xs font-bold uppercase tracking-widest text-white/35">
+                        {activity?.activity_date || 'Not synced'}
+                    </div>
                 </div>
             </div>
 
@@ -44,7 +55,7 @@ const ActivityOverview = ({ activity }) => {
                 </div>
             ) : (
                 <div className="rounded-[2rem] border border-dashed border-white/10 p-6 text-white/45 text-sm">
-                    Connect Google Fit in Settings and run a sync to show your activity data here.
+                    Connect Fitbit or Google Fit in Health and run a sync to show your activity data here.
                 </div>
             )}
         </div>

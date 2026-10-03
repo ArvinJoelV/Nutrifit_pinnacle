@@ -151,20 +151,29 @@ const ProfilePage = () => {
                 <button onClick={() => navigate(-1)} className="p-3 bg-white/5 rounded-full hover:bg-white/10">
                     <ArrowLeft className="w-6 h-6" />
                 </button>
-                <div className="flex gap-4">
+                <div className="flex gap-3">
                     {isEditing ? (
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving}
-                            className="px-6 py-3 bg-primary text-black rounded-full font-bold text-sm flex items-center gap-2 hover:bg-primary-light transition-colors disabled:opacity-50"
-                        >
-                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            Save
-                        </button>
+                        <>
+                            <button
+                                onClick={() => setIsEditing(false)}
+                                disabled={isSaving}
+                                className="px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white/80 text-sm font-semibold transition-colors disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSave}
+                                disabled={isSaving}
+                                className="px-6 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black rounded-full font-bold text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all disabled:opacity-50"
+                            >
+                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                Save Changes
+                            </button>
+                        </>
                     ) : (
                         <button
                             onClick={() => setIsEditing(true)}
-                            className="px-6 py-3 bg-white/10 text-white rounded-full font-bold text-sm hover:bg-white/20 transition-colors"
+                            className="px-6 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black rounded-full font-bold text-sm shadow-lg shadow-amber-500/20 transition-all flex items-center gap-2"
                         >
                             Edit Profile
                         </button>
@@ -286,6 +295,28 @@ const ProfilePage = () => {
                     </div>
                 </section>
 
+                {isEditing && (
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsEditing(false)}
+                            disabled={isSaving}
+                            className="px-6 py-3 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-semibold text-sm transition-colors disabled:opacity-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSave}
+                            disabled={isSaving}
+                            className="px-8 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black rounded-2xl font-black text-sm flex items-center gap-2 shadow-xl shadow-amber-500/25 transition-all disabled:opacity-50"
+                        >
+                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            Save Profile
+                        </button>
+                    </div>
+                )}
+
                 <section className="bg-linear-to-br from-white/5 to-white/0 border border-white/5 rounded-[2rem] p-8">
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
                         <div className="text-sm font-bold text-white/40 uppercase tracking-widest">Calculated Diabetes Targets</div>
@@ -309,6 +340,30 @@ const ProfilePage = () => {
                     </div>
                 </section>
             </div>
+
+            {/* Sticky Floating Save Bar while scrolling */}
+            {isEditing && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#121212]/95 backdrop-blur-xl border border-white/15 px-6 py-3 rounded-full shadow-2xl flex items-center gap-4">
+                    <span className="text-xs font-semibold text-white/60 hidden sm:inline uppercase tracking-wider">Editing profile</span>
+                    <button
+                        type="button"
+                        onClick={() => setIsEditing(false)}
+                        disabled={isSaving}
+                        className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white/80 text-xs font-bold transition-colors disabled:opacity-50"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="px-5 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black rounded-full font-black text-xs flex items-center gap-2 shadow-lg shadow-amber-500/25 transition-all disabled:opacity-50"
+                    >
+                        {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        Save Changes
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

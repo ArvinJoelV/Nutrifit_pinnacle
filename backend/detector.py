@@ -5,11 +5,13 @@ import os
 import shutil
 
 # Initialize Models
-yolo_model_path = "models/food_detection_yolov8_model1.pt"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+yolo_model_path = os.path.join(BASE_DIR, "models", "food_detection_yolov8_model1.pt")
 if not os.path.exists(yolo_model_path):
-    yolo_model_path = "models/food_detection_yolov8_model.pt"
+    yolo_model_path = os.path.join(BASE_DIR, "models", "food_detection_yolov8_model.pt")
 yolo_model = YOLO(yolo_model_path)
-sam_model = SAM("sam2_b.pt")
+sam_model_path = os.path.join(BASE_DIR, "sam2_b.pt") if os.path.exists(os.path.join(BASE_DIR, "sam2_b.pt")) else "sam2_b.pt"
+sam_model = SAM(sam_model_path)
 
 CROP_DIR = "static/cropped_mask"
 SAM_OUTPUT_DIR = "static/mask"

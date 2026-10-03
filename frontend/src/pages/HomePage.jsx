@@ -542,6 +542,7 @@ const HomePage = () => {
     distance: (Number(latestActivity.distance_meters || 0) / 1000).toFixed(2),
     heartRate: latestActivity.avg_heart_rate ? Math.round(Number(latestActivity.avg_heart_rate)).toString() : '--',
     activity_date: latestActivity.activity_date,
+    source: latestActivity.source || 'wearable',
   } : null;
 
   const mealTargets = {

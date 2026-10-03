@@ -68,9 +68,28 @@ def init_db():
             ("bucket_start_local", "TEXT"),
             ("bucket_end_local", "TEXT"),
             ("data_source_ids", "TEXT"),
+            ("source", "TEXT"),
+            ("sleep_minutes", "INTEGER"),
         ):
             if column_name not in existing_columns:
                 connection.execute(f"ALTER TABLE google_fit_daily_metrics ADD COLUMN {column_name} {column_type}")
+
+        # --- Fitbit tokens table ---
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fitbit_tokens (
+                user_id TEXT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT,
+                token_type TEXT,
+                scope TEXT,
+                user_fitbit_id TEXT,
+                expires_at INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
 
 
 def _utc_now_iso():
@@ -138,10 +157,12 @@ def save_daily_metrics(user_id, daily_rows):
                     avg_heart_rate,
                     max_heart_rate,
                     min_heart_rate,
+                    source,
+                    sleep_minutes,
                     raw_payload,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, activity_date) DO UPDATE SET
                     timezone=excluded.timezone,
                     bucket_start_utc=excluded.bucket_start_utc,
@@ -155,6 +176,8 @@ def save_daily_metrics(user_id, daily_rows):
                     avg_heart_rate=excluded.avg_heart_rate,
                     max_heart_rate=excluded.max_heart_rate,
                     min_heart_rate=excluded.min_heart_rate,
+                    source=COALESCE(excluded.source, google_fit_daily_metrics.source),
+                    sleep_minutes=COALESCE(excluded.sleep_minutes, google_fit_daily_metrics.sleep_minutes),
                     raw_payload=excluded.raw_payload,
                     updated_at=excluded.updated_at
                 """
@@ -174,13 +197,15 @@ def save_daily_metrics(user_id, daily_rows):
                     row.get("avg_heart_rate"),
                     row.get("max_heart_rate"),
                     row.get("min_heart_rate"),
+                    row.get("source"),
+                    row.get("sleep_minutes"),
                     json.dumps(row.get("raw_payload") or {}, separators=(",", ":")),
                     now,
                 ),
             )
 
 
-def get_daily_metrics(user_id, start_date=None, end_date=None):
+def get_daily_metrics(user_id, start_date=None, end_date=None, source=None):
     query = "SELECT * FROM google_fit_daily_metrics WHERE user_id = ?"
     params = [user_id]
 
@@ -190,6 +215,14 @@ def get_daily_metrics(user_id, start_date=None, end_date=None):
     if end_date:
         query += " AND activity_date <= ?"
         params.append(end_date)
+    if source:
+        if source == "fitbit":
+            query += " AND source IN ('fitbit', 'fitbit_watch')"
+        elif source == "google_fit":
+            query += " AND (source IS NULL OR source IN ('google_fit', 'phone_sensor', 'fitbit_watch'))"
+        else:
+            query += " AND source = ?"
+            params.append(source)
 
     query += " ORDER BY activity_date DESC"
 
@@ -203,3 +236,49 @@ def get_daily_metrics(user_id, start_date=None, end_date=None):
         payload["data_source_ids"] = json.loads(payload["data_source_ids"]) if payload.get("data_source_ids") else []
         results.append(payload)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Fitbit token helpers
+# ---------------------------------------------------------------------------
+
+def save_fitbit_tokens(user_id, token_payload):
+    now = _utc_now_iso()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO fitbit_tokens (
+                user_id, access_token, refresh_token, token_type, scope,
+                user_fitbit_id, expires_at, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                access_token=excluded.access_token,
+                refresh_token=COALESCE(excluded.refresh_token, fitbit_tokens.refresh_token),
+                token_type=excluded.token_type,
+                scope=excluded.scope,
+                user_fitbit_id=excluded.user_fitbit_id,
+                expires_at=excluded.expires_at,
+                updated_at=excluded.updated_at
+            """,
+            (
+                user_id,
+                token_payload.get("access_token", ""),
+                token_payload.get("refresh_token"),
+                token_payload.get("token_type"),
+                token_payload.get("scope"),
+                token_payload.get("user_id"),  # Fitbit returns their internal user ID as "user_id"
+                token_payload.get("expires_at"),
+                now,
+                now,
+            ),
+        )
+
+
+def get_fitbit_tokens(user_id):
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM fitbit_tokens WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
