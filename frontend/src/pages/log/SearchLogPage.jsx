@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Search, Plus, X, Check } from 'lucide-react';
+import { ArrowLeft, Search, Plus, X, Check, Camera } from 'lucide-react';
 import { searchFoods } from '../../services/foodSearchService';
 
 const PAGE_SIZE = 20;
 
 const SearchLogPage = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedTerm, setDebouncedTerm] = useState('');
     const [selectedFood, setSelectedFood] = useState(null);
@@ -21,7 +22,7 @@ const SearchLogPage = () => {
 
     // Modal state
     const [quantity, setQuantity] = useState(1);
-    const [mealType, setMealType] = useState('Breakfast');
+    const [mealType, setMealType] = useState(location.state?.mealType || 'Breakfast');
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -125,7 +126,7 @@ const SearchLogPage = () => {
     const handleFoodClick = (food) => {
         setSelectedFood(food);
         setQuantity(1);
-        setMealType('Lunch');
+        setMealType(prev => prev || location.state?.mealType || 'Lunch');
     };
 
     const handleConfirm = () => {
@@ -152,12 +153,31 @@ const SearchLogPage = () => {
             <div className="p-6 pb-2">
                 <div className="flex items-center gap-4 mb-6">
                     <button
-                        onClick={() => navigate('/log')}
-                        className="p-3 bg-white/5 rounded-full hover:bg-white/10 transition-colors"
+                        onClick={() => navigate(-1)}
+                        className="p-3 bg-white/5 rounded-full hover:bg-white/10 transition-colors cursor-pointer"
                     >
                         <ArrowLeft className="w-6 h-6" />
                     </button>
                     <h1 className="text-2xl font-black">Search Food</h1>
+                </div>
+
+                {/* Mode Switcher */}
+                <div className="flex items-center justify-center gap-2 mb-6">
+                    <button
+                        type="button"
+                        onClick={() => navigate('/log/photo', { state: { mealType } })}
+                        className="px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                        <Camera className="w-4 h-4" />
+                        <span>Photo Log</span>
+                    </button>
+                    <button
+                        type="button"
+                        className="px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-white text-black flex items-center gap-2 shadow-sm cursor-pointer"
+                    >
+                        <Search className="w-4 h-4" />
+                        <span>Search Food</span>
+                    </button>
                 </div>
 
                 <div className="relative group mb-6">

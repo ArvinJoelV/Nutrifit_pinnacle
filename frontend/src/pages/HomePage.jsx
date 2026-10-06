@@ -415,7 +415,7 @@ const HomePage = () => {
 
       setDailyStats(stats.totals);
       setAllMeals(stats.meals || []);
-      setRecentMeals(stats.meals.slice(0, 3));
+      setRecentMeals((stats.meals || []).slice(0, 6));
       const latest = getTodayActivity(sortActivityRows(activity.items || []));
       setLatestActivity(latest);
 
@@ -589,7 +589,7 @@ const HomePage = () => {
         />
 
         <MacroSummary macros={nutritionCards} />
-        <QuickActions />
+        <QuickActions nextMealType={nextMealType ? mealLabels[nextMealType] : null} />
 
         <div className="col-span-12 bg-white/5 border border-white/10 rounded-[2.5rem] p-6">
           <div className="mb-5">

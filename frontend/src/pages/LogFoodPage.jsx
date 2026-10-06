@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, Search, ChevronRight, Loader2 } from 'lucide-react';
 import { getDailyStats } from '../services/mealService';
@@ -7,19 +7,46 @@ import { getUserProfile, calculateDiabetesNutritionPlan } from '../services/user
 import { getGoogleFitActivity } from '../services/googleFitService';
 import { useOnboarding } from '../contexts/OnboardingContext';
 
+const getInitialCachedTargets = () => {
+    try {
+        const cached = localStorage.getItem('nutrifit_cached_meal_targets');
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+                return parsed;
+            }
+        }
+    } catch (e) {}
+    return {};
+};
+
 const LogFoodPage = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { formData } = useOnboarding();
 
-    const [isLoadingTargets, setIsLoadingTargets] = useState(true);
+    const searchParams = new URLSearchParams(location.search);
+    const mode = searchParams.get('mode');
+
+    const initialTargets = getInitialCachedTargets();
+    const hasCached = Object.keys(initialTargets).length > 0;
+    const [isLoadingTargets, setIsLoadingTargets] = useState(!hasCached);
     const [availableMeals, setAvailableMeals] = useState(['Breakfast', 'Lunch', 'Dinner', 'Snack']);
-    const [upcomingTargets, setUpcomingTargets] = useState({});
+    const [upcomingTargets, setUpcomingTargets] = useState(initialTargets);
     const [selectedMealType, setSelectedMealType] = useState('');
+
+    useEffect(() => {
+        if (mode === 'camera') {
+            navigate('/log/photo', { replace: true, state: { mealType: selectedMealType || 'Lunch' } });
+        } else if (mode === 'search') {
+            navigate('/log/search', { replace: true, state: { mealType: selectedMealType || 'Lunch' } });
+        }
+    }, [mode, navigate, selectedMealType]);
 
     useEffect(() => {
         let isMounted = true;
         const loadTargets = async () => {
-            setIsLoadingTargets(true);
+            if (!hasCached) setIsLoadingTargets(true);
             try {
                 const [stats, profile, activity] = await Promise.all([
                     getDailyStats().catch(() => ({ totals: { calories: 0, protein: 0, carbs: 0, fat: 0 }, meals: [] })),
@@ -167,12 +194,12 @@ const LogFoodPage = () => {
                     {availableMeals.map(type => {
                         const targets = upcomingTargets[type.toLowerCase()] || { calories: 0, carbs: 0, protein: 0, fat: 0 };
                         return (
-                            <motion.button
+                            <motion.div
                                 key={type}
                                 whileHover={{ scale: 1.02 }}
                                 whileTap={{ scale: 0.98 }}
-                                onClick={() => navigate('/log/method', { state: { mealType: type } })}
-                                className="bg-linear-to-br from-white/10 to-white/5 border border-white/10 hover:border-primary/50 transition-colors rounded-[2.5rem] p-8 text-left group"
+                                onClick={() => navigate('/log/photo', { state: { mealType: type } })}
+                                className="bg-linear-to-br from-white/10 to-white/5 border border-white/10 hover:border-primary/50 transition-colors rounded-[2.5rem] p-8 text-left group cursor-pointer"
                             >
                                 <div className="flex justify-between items-center mb-6">
                                     <h3 className="text-3xl font-black group-hover:text-primary transition-colors">{type}</h3>
@@ -196,7 +223,32 @@ const LogFoodPage = () => {
                                         <div className="font-black text-lg">{Math.round(targets.fat)}g</div>
                                     </div>
                                 </div>
-                            </motion.button>
+
+                                <div className="mt-6 flex items-center gap-3 pt-4 border-t border-white/10">
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate('/log/photo', { state: { mealType: type } });
+                                        }}
+                                        className="flex-1 py-3 px-4 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                                    >
+                                        <Camera className="w-4 h-4 text-primary" />
+                                        <span>Photo Log</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate('/log/search', { state: { mealType: type } });
+                                        }}
+                                        className="flex-1 py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                                    >
+                                        <Search className="w-4 h-4" />
+                                        <span>Search</span>
+                                    </button>
+                                </div>
+                            </motion.div>
                         );
                     })}
                 </motion.div>

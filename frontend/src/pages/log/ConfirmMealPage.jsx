@@ -15,7 +15,10 @@ import {
     Check,
     Scale,
     Layers,
-    Cpu
+    Cpu,
+    Eye,
+    EyeOff,
+    RotateCcw
 } from 'lucide-react';
 import PipelineInspectorModal from '../../components/log/PipelineInspectorModal';
 import { getDailyStats, saveMealLog } from '../../services/mealService';
@@ -72,6 +75,27 @@ const addMacros = (left = {}, right = {}) => ({
     fat: Number(left.fat || 0) + Number(right.fat || 0),
 });
 
+const ItemThumbnail = ({ image, name }) => {
+    const [failed, setFailed] = useState(false);
+
+    if (!image || failed) {
+        return (
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold shrink-0 shadow-sm">
+                <Utensils className="w-5 h-5 opacity-90" />
+            </div>
+        );
+    }
+
+    return (
+        <img
+            src={image}
+            alt=""
+            onError={() => setFailed(true)}
+            className="w-12 h-12 rounded-2xl object-cover border border-white/15 shrink-0 shadow-sm"
+        />
+    );
+};
+
 const ConfirmMealPage = () => {
     const { state } = useLocation();
     const navigate = useNavigate();
@@ -88,7 +112,7 @@ const ConfirmMealPage = () => {
     );
     const [mealTime, setMealTime] = useState(getCurrentTimeHHMM());
     const [isSaving, setIsSaving] = useState(false);
-    const [showSegmentedImage, setShowSegmentedImage] = useState(true);
+    const [showSegmentedImage, setShowSegmentedImage] = useState(Boolean(state?.mealData?.segmentedImage));
     const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 
     if (!state?.mealData) {
@@ -103,7 +127,7 @@ const ConfirmMealPage = () => {
                 </p>
                 <button
                     onClick={() => navigate('/home')}
-                    className="px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 text-black font-bold text-sm rounded-full shadow-lg shadow-amber-500/20 hover:scale-105 transition-transform"
+                    className="px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 text-black font-bold text-sm rounded-full shadow-lg shadow-amber-500/20 hover:scale-105 transition-transform cursor-pointer"
                 >
                     Return to Dashboard
                 </button>
@@ -111,6 +135,7 @@ const ConfirmMealPage = () => {
         );
     }
 
+    const image = state.mealData.image;
     const segmentedImage = state.mealData.segmentedImage;
     const scaleCalibration = state.mealData.scale_calibration || null;
     const sceneAssessment = state.mealData.scene_assessment || null;
@@ -143,7 +168,7 @@ const ConfirmMealPage = () => {
     const macroTotalGrams = (macros.protein + macros.carbs + macros.fat) || 1;
     const carbPercent = Math.round((macros.carbs / macroTotalGrams) * 100);
     const proteinPercent = Math.round((macros.protein / macroTotalGrams) * 100);
-    const fatPercent = Math.round((macros.fat / macroTotalGrams) * 100);
+    const fatPercent = Math.max(0, 100 - carbPercent - proteinPercent);
 
     const updateMultiplier = (index, delta) => {
         setItems(prev => prev.map((item, idx) => {
@@ -253,401 +278,419 @@ const ConfirmMealPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#070709] text-white flex flex-col pb-32">
-            {/* Ambient Background Glow */}
-            <div className="fixed inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute -top-32 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full bg-amber-500/10 blur-[120px]" />
-                <div className="absolute top-1/3 -right-32 w-72 h-72 rounded-full bg-emerald-500/5 blur-[100px]" />
-            </div>
-
-            <div className="relative z-10 w-full max-w-lg mx-auto px-5 pt-6">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-6">
-                    <button
-                        onClick={() => navigate(-1)}
-                        className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-white/80 hover:text-white"
-                        aria-label="Back"
-                    >
-                        <ArrowLeft className="w-5 h-5" />
-                    </button>
-                    <div className="text-center">
-                        <span className="text-[10px] font-bold tracking-widest uppercase text-amber-400">Step 2 of 2</span>
-                        <h1 className="text-lg font-black tracking-tight">Confirm & Log Meal</h1>
-                    </div>
-                    <button
-                        onClick={() => navigate('/home')}
-                        className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-white/60 hover:text-white"
-                        aria-label="Cancel"
-                    >
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-
-                {/* Scene Assessment & Calibration Notice */}
-                {sceneAssessment && (
-                    <div className={`mb-4 px-4 py-3 rounded-2xl border text-xs flex items-center justify-between backdrop-blur-md flex-wrap gap-2 ${
-                        sceneAssessment.needs_better_image
-                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
-                    }`}>
-                        <div className="flex items-center gap-2">
-                            <span>{sceneAssessment.needs_better_image ? '📸' : '✨'}</span>
-                            <span className="font-medium">
-                                {sceneAssessment.needs_better_image
-                                    ? (sceneAssessment.prompt || 'Tip: Photo at 45° angle with plate rim visible yields higher portion accuracy.')
-                                    : `Physics-grounded 3D portion estimation active (${Math.round((sceneAssessment.overall_confidence || 0.8) * 100)}% confidence)`}
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                            {scaleCalibration && (
-                                <span className="text-[10px] uppercase tracking-wider font-bold bg-white/10 px-2.5 py-1 rounded-full text-white/80 border border-white/10">
-                                    {scaleCalibration.plate_detected ? 'Plate Calibrated' : 'Prior Calibrated'}
+        <div className="min-h-screen text-white flex flex-col pb-16">
+            <div className="w-full max-w-7xl mx-auto px-4 lg:px-6 pt-4">
+                {/* 3-Step Breadcrumb Header Matching Inspo Theme */}
+                <div className="flex flex-col lg:flex-row items-center justify-between gap-4 mb-8 pb-4 border-b border-white/5">
+                    {/* Left: Back button + Title */}
+                    <div className="flex items-center gap-4 w-full lg:w-auto">
+                        <button
+                            onClick={() => navigate(-1)}
+                            className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors text-white/70 hover:text-white cursor-pointer"
+                            title="Back to Review & Adjust"
+                        >
+                            <ArrowLeft className="w-5 h-5" />
+                        </button>
+                        <div>
+                            <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                                <span>Confirm & Log</span>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/20">
+                                    Step 3 of 3
                                 </span>
-                            )}
-                            {pipelineTrace.length > 0 && (
-                                <button
-                                    type="button"
-                                    onClick={() => setIsInspectorOpen(true)}
-                                    className="text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 border border-amber-400/30 px-2.5 py-1 rounded-full flex items-center gap-1 transition-colors"
-                                    title="View output of each Python file & function"
-                                >
-                                    <Cpu className="w-3 h-3 text-amber-400" />
-                                    <span>Inspect Pipeline</span>
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {/* Hero Nutrition Summary Card */}
-                <motion.div
-                    initial={{ opacity: 0, y: 15 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-amber-500/15 via-white/[0.03] to-white/[0.02] border border-amber-500/25 p-6 mb-6 backdrop-blur-xl shadow-2xl shadow-black/60"
-                >
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                            <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
-                                <Flame className="w-4 h-4 fill-amber-400/20" />
-                            </span>
-                            <span className="text-xs font-bold uppercase tracking-wider text-amber-300/80">
-                                Total Energy & Portion
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap justify-end">
-                            {state?.mealData?.execution_target && (
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border flex items-center gap-1 ${
-                                    state.mealData.execution_target.toLowerCase().includes('edge') || state.mealData.execution_target.toLowerCase().includes('c100')
-                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 shadow-sm shadow-emerald-500/20'
-                                        : 'bg-white/10 text-white/70 border-white/10'
-                                }`}>
-                                    <Cpu className="w-3 h-3 text-emerald-400" />
-                                    {state.mealData.execution_target}
-                                </span>
-                            )}
-                            {pipelineTrace.length > 0 && !sceneAssessment && (
-                                <button
-                                    type="button"
-                                    onClick={() => setIsInspectorOpen(true)}
-                                    className="text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 border border-amber-400/30 px-2.5 py-1 rounded-full flex items-center gap-1 transition-colors"
-                                >
-                                    <Cpu className="w-3 h-3 text-amber-400" />
-                                    <span>Inspect Pipeline</span>
-                                </button>
-                            )}
-                            <span className="px-2.5 py-1 rounded-full bg-white/10 text-[11px] font-semibold text-white/70">
-                                {items.length} {items.length === 1 ? 'item' : 'items'} detected
-                            </span>
+                            </h1>
+                            <p className="text-xs text-white/50">
+                                Final verification before committing this meal to your daily timeline
+                            </p>
                         </div>
                     </div>
 
-                    <div className="flex items-baseline justify-between mb-6">
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-5xl font-black tracking-tight text-white font-mono">
-                                {Math.round(totalCalories)}
-                            </span>
-                            <span className="text-base font-semibold text-white/50">kcal</span>
-                        </div>
-                        {totalMass > 0 && (
-                            <div className="text-right">
-                                <div className="text-[10px] text-white/40 font-bold uppercase tracking-wider mb-0.5">Total Weight</div>
-                                <div className="text-2xl font-black text-amber-300 font-mono">
-                                    {Math.round(totalMass)}<span className="text-sm font-semibold text-white/50 ml-1">g</span>
-                                </div>
+                    {/* Middle: 3-step visual breadcrumb stepper */}
+                    <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-black/40 border border-white/10 rounded-2xl backdrop-blur-md">
+                        {/* Step 1: Detect & Segment (Completed) */}
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-400 text-emerald-400 flex items-center justify-center text-xs font-bold shadow-sm">
+                                <Check className="w-3.5 h-3.5" />
                             </div>
+                            <div className="text-left">
+                                <div className="text-xs font-bold text-white">1 Detect & Segment</div>
+                                <div className="text-[10px] text-emerald-400/80 font-medium">Food items identified</div>
+                            </div>
+                        </div>
+
+                        {/* Divider */}
+                        <div className="w-6 h-[1px] bg-white/20 mx-1" />
+
+                        {/* Step 2: Review & Adjust (Completed) */}
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-400 text-emerald-400 flex items-center justify-center text-xs font-bold shadow-sm">
+                                <Check className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="text-left">
+                                <div className="text-xs font-bold text-white">2 Review & Adjust</div>
+                                <div className="text-[10px] text-emerald-400/80 font-medium">Portions edited</div>
+                            </div>
+                        </div>
+
+                        {/* Divider */}
+                        <div className="w-6 h-[1px] bg-white/20 mx-1" />
+
+                        {/* Step 3: Confirm (Active) */}
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-6 h-6 rounded-full bg-amber-500 text-black flex items-center justify-center text-xs font-black shadow-md shadow-amber-500/20">
+                                3
+                            </div>
+                            <div className="text-left">
+                                <div className="text-xs font-bold text-amber-300">3 Confirm & Log</div>
+                                <div className="text-[10px] text-amber-400/80 font-medium">Save to log</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right: Actions */}
+                    <div className="flex items-center gap-3 w-full lg:w-auto justify-end">
+                        {pipelineTrace.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => setIsInspectorOpen(true)}
+                                className="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                                title="Inspect internal pipeline trace"
+                            >
+                                <Cpu className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Inspect Pipeline</span>
+                            </button>
                         )}
-                    </div>
-
-                    {/* Macro Distribution Bar */}
-                    <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden flex gap-0.5 mb-4">
-                        <div style={{ width: `${carbPercent}%` }} className="h-full bg-amber-400 rounded-l-full transition-all duration-300" title={`Carbs: ${carbPercent}%`} />
-                        <div style={{ width: `${proteinPercent}%` }} className="h-full bg-emerald-400 transition-all duration-300" title={`Protein: ${proteinPercent}%`} />
-                        <div style={{ width: `${fatPercent}%` }} className="h-full bg-rose-400 rounded-r-full transition-all duration-300" title={`Fat: ${fatPercent}%`} />
-                    </div>
-
-                    {/* Macro Cards */}
-                    <div className="grid grid-cols-3 gap-2.5">
-                        <div className="bg-amber-400/10 border border-amber-400/20 rounded-2xl p-3 text-center">
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-amber-300/80 mb-0.5">Carbs</span>
-                            <span className="text-lg font-black text-amber-300">{Math.round(macros.carbs)}<span className="text-xs font-medium">g</span></span>
-                            <span className="block text-[10px] text-amber-400/60 font-medium">{carbPercent}%</span>
-                        </div>
-                        <div className="bg-emerald-400/10 border border-emerald-400/20 rounded-2xl p-3 text-center">
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-emerald-300/80 mb-0.5">Protein</span>
-                            <span className="text-lg font-black text-emerald-300">{Math.round(macros.protein)}<span className="text-xs font-medium">g</span></span>
-                            <span className="block text-[10px] text-emerald-400/60 font-medium">{proteinPercent}%</span>
-                        </div>
-                        <div className="bg-rose-400/10 border border-rose-400/20 rounded-2xl p-3 text-center">
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-rose-300/80 mb-0.5">Fat</span>
-                            <span className="text-lg font-black text-rose-300">{Math.round(macros.fat)}<span className="text-xs font-medium">g</span></span>
-                            <span className="block text-[10px] text-rose-400/60 font-medium">{fatPercent}%</span>
-                        </div>
-                    </div>
-                </motion.div>
-
-                {/* Meal Window & Time Selector */}
-                <div className="bg-white/[0.03] border border-white/[0.08] rounded-3xl p-5 mb-6 backdrop-blur-md">
-                    <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wider text-white/50">Meal Window</span>
-                        <div className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-xl transition-colors">
-                            <Clock className="w-3.5 h-3.5 text-amber-400" />
-                            <input
-                                type="time"
-                                value={mealTime}
-                                onChange={(e) => setMealTime(e.target.value)}
-                                className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-2">
-                        {mealTypes.map((type) => {
-                            const active = selectedMealType === type.id;
-                            return (
-                                <button
-                                    key={type.id}
-                                    type="button"
-                                    onClick={() => setSelectedMealType(type.id)}
-                                    className={`py-2.5 px-2 rounded-2xl font-bold text-xs flex flex-col items-center gap-1 transition-all ${
-                                        active
-                                            ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-black shadow-lg shadow-amber-500/20 scale-[1.02]'
-                                            : 'bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/5'
-                                    }`}
-                                >
-                                    <span className="text-sm">{type.icon}</span>
-                                    <span>{type.label}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* AI Segmentation Preview */}
-                {segmentedImage && (
-                    <div className="bg-white/[0.03] border border-white/[0.08] rounded-3xl overflow-hidden mb-6 backdrop-blur-md">
                         <button
                             type="button"
-                            onClick={() => setShowSegmentedImage(!showSegmentedImage)}
-                            className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
+                            onClick={() => navigate('/home')}
+                            className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white font-semibold text-xs flex items-center gap-2 transition-colors cursor-pointer"
                         >
-                            <div className="flex items-center gap-2">
-                                <Sparkles className="w-4 h-4 text-amber-400" />
-                                <span className="text-xs font-bold uppercase tracking-wider text-white/70">
-                                    AI Vision Segmentation
+                            <X className="w-3.5 h-3.5" />
+                            <span>Discard</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Main 2-Column Responsive Layout */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                    {/* Left Column (5 cols): Photo & Meal Settings */}
+                    <div className="lg:col-span-5 space-y-6">
+                        {/* Meal Photo Card with optional mask overlay */}
+                        {image && (
+                            <div className="relative w-full aspect-[4/3] rounded-[2.5rem] overflow-hidden border border-white/10 bg-black/40 shadow-2xl group select-none">
+                                <img
+                                    src={image}
+                                    alt="Meal photo"
+                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.01]"
+                                />
+
+                                {showSegmentedImage && segmentedImage && (
+                                    <motion.img
+                                        src={segmentedImage}
+                                        alt="Segmented food preview"
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 0.95 }}
+                                        transition={{ duration: 0.3 }}
+                                        className="absolute inset-0 w-full h-full object-cover mix-blend-screen pointer-events-none"
+                                    />
+                                )}
+
+                                {/* Top Left: Meal Type Pill */}
+                                <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white/90 text-xs font-semibold shadow-lg">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                    <span className="capitalize">{selectedMealType} Photo</span>
+                                </div>
+
+                                {/* Top Right: Mask Toggle */}
+                                {segmentedImage && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowSegmentedImage(!showSegmentedImage)}
+                                        className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/10 text-white/80 hover:text-white text-xs font-medium transition-colors shadow-lg cursor-pointer"
+                                    >
+                                        {showSegmentedImage ? (
+                                            <>
+                                                <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                                                <span>Hide Segments</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                                                <span>Show Segments</span>
+                                            </>
+                                        )}
+                                    </button>
+                                )}
+
+                                <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+                            </div>
+                        )}
+
+                        {/* Meal Window & Time Selector */}
+                        <div className="bg-white/[0.03] border border-white/[0.08] rounded-3xl p-5 backdrop-blur-md">
+                            <div className="flex items-center justify-between mb-4">
+                                <span className="text-xs font-bold uppercase tracking-wider text-white/50">
+                                    Meal Window & Timing
+                                </span>
+                                <div className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-xl transition-colors">
+                                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                    <input
+                                        type="time"
+                                        value={mealTime}
+                                        onChange={(e) => setMealTime(e.target.value)}
+                                        className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-2">
+                                {mealTypes.map((type) => {
+                                    const active = selectedMealType === type.id;
+                                    return (
+                                        <button
+                                            key={type.id}
+                                            type="button"
+                                            onClick={() => setSelectedMealType(type.id)}
+                                            className={`py-3 px-2 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                                                active
+                                                    ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-black shadow-lg shadow-amber-500/20 scale-[1.02]'
+                                                    : 'bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/5'
+                                            }`}
+                                        >
+                                            <span className="text-base">{type.icon}</span>
+                                            <span>{type.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* AI Calibration Details Card */}
+                        {(scaleCalibration || state?.mealData?.execution_target) && (
+                            <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 flex items-center justify-between text-xs text-white/60">
+                                <div className="flex items-center gap-2">
+                                    <Scale className="w-4 h-4 text-amber-400/80" />
+                                    <span>
+                                        {scaleCalibration?.plate_detected
+                                            ? `Plate Calibrated (~${Math.round(scaleCalibration.plate_diameter_cm || 26)}cm)`
+                                            : 'Reference Scaling Active'}
+                                    </span>
+                                </div>
+                                {state?.mealData?.execution_target && (
+                                    <span className="text-[10px] font-bold uppercase tracking-wider bg-white/5 border border-white/10 px-2 py-0.5 rounded-md text-emerald-400 flex items-center gap-1">
+                                        <Cpu className="w-3 h-3 text-emerald-400" />
+                                        {state.mealData.execution_target}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right Column (7 cols): Nutrition Hero, Items List & Confirm CTA */}
+                    <div className="lg:col-span-7 space-y-6">
+                        {/* Nutrition Summary Hero Card */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 15 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-amber-500/15 via-white/[0.03] to-white/[0.02] border border-amber-500/25 p-6 backdrop-blur-xl shadow-2xl shadow-black/40"
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+                                        <Flame className="w-4 h-4 fill-amber-400/20" />
+                                    </span>
+                                    <span className="text-xs font-bold uppercase tracking-wider text-amber-300/90">
+                                        Total Nutrition Estimate
+                                    </span>
+                                </div>
+                                <span className="px-2.5 py-1 rounded-full bg-white/10 text-[11px] font-semibold text-white/70">
+                                    {items.length} {items.length === 1 ? 'item' : 'items'} detected
                                 </span>
                             </div>
-                            <span className="text-[11px] font-semibold text-amber-400/80">
-                                {showSegmentedImage ? 'Hide' : 'View Mask'}
-                            </span>
-                        </button>
-                        <AnimatePresence>
-                            {showSegmentedImage && (
-                                <motion.div
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: 'auto' }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                    className="border-t border-white/5 relative"
-                                >
-                                    <img
-                                        src={segmentedImage}
-                                        alt="Segmented Meal"
-                                        className="w-full h-44 object-cover object-center"
-                                    />
-                                    <div className="absolute bottom-2 right-3 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold text-white/80 border border-white/10">
-                                        SAM 2 Active
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                )}
 
-                {/* Food Items Breakdown */}
-                <div className="space-y-3 mb-8">
-                    <div className="flex items-center justify-between px-1">
-                        <span className="text-xs font-bold uppercase tracking-wider text-white/40">
-                            Food Items & Portion Adjustments
-                        </span>
-                        <span className="text-[11px] text-white/40">Use +/- to adjust size</span>
-                    </div>
-
-                    {items.map((item, idx) => {
-                        const mult = item.multiplier || 1;
-                        const itemCals = Math.round((Number(item.calories) || 0) * mult);
-                        const itemCarbs = Math.round((Number(item.carbs) || 0) * mult);
-                        const itemProtein = Math.round((Number(item.protein) || 0) * mult);
-                        const itemFat = Math.round((Number(item.fat) || 0) * mult);
-
-                        return (
-                            <motion.div
-                                key={idx}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: idx * 0.05 }}
-                                className="bg-white/[0.03] hover:bg-white/[0.05] border border-white/[0.08] rounded-3xl p-4 transition-colors backdrop-blur-md"
-                            >
-                                <div className="flex items-start justify-between gap-3 mb-3">
-                                    <div className="flex items-center gap-3">
-                                        {item.image ? (
-                                            <img
-                                                src={item.image}
-                                                alt={item.name}
-                                                className="w-11 h-11 rounded-2xl object-cover border border-white/10"
-                                            />
-                                        ) : (
-                                            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">
-                                                🍽️
-                                            </div>
-                                        )}
-                                        <div>
-                                            <h4 className="font-bold text-sm text-white capitalize leading-snug">
-                                                {item.name}
-                                            </h4>
-                                            <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                                                <span className="text-xs text-white/40 font-medium">
-                                                    {item.serving || '1 portion'}
-                                                </span>
-                                                {item.mass_g != null && (
-                                                    <span className="text-[11px] font-bold text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded-md border border-amber-400/20">
-                                                        ⚖️ {Math.round(item.mass_g * mult)}g
-                                                    </span>
-                                                )}
-                                                {item.estimated_volume_cm3 != null && (
-                                                    <span className="text-[10px] text-white/50 bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
-                                                        {Math.round(item.estimated_volume_cm3 * mult)} cm³
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {Array.isArray(item.mass_range_g) && (
-                                                <div className="text-[10px] text-white/35 mt-0.5">
-                                                    Est. Range: {Math.round(item.mass_range_g[0] * mult)}–{Math.round(item.mass_range_g[1] * mult)}g
-                                                    {item.confidence != null && ` (${Math.round(item.confidence * 100)}% conf)`}
-                                                </div>
-                                            )}
-                                            {item.occlusion_probability > 0.15 && (
-                                                <div className="text-[10px] text-amber-300/80 mt-0.5 flex items-center gap-1">
-                                                    <span>⚠️</span>
-                                                    <span>{Math.round(item.occlusion_probability * 100)}% occluded (reconstructed)</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
+                            <div className="flex items-baseline justify-between mb-5">
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-5xl font-black tracking-tight text-white font-mono">
+                                        {Math.round(totalCalories)}
+                                    </span>
+                                    <span className="text-base font-semibold text-white/50">kcal</span>
+                                </div>
+                                {totalMass > 0 && (
                                     <div className="text-right">
-                                        <div className="font-mono font-black text-lg text-white">
-                                            {itemCals}
-                                            <span className="text-xs font-medium text-white/40 ml-1">kcal</span>
+                                        <div className="text-[10px] text-white/40 font-bold uppercase tracking-wider mb-0.5">Total Weight</div>
+                                        <div className="text-2xl font-black text-amber-300 font-mono">
+                                            {Math.round(totalMass)}<span className="text-sm font-semibold text-white/50 ml-1">g</span>
                                         </div>
-                                        {item.mass_g != null && (
-                                            <div className="text-[11px] font-mono text-amber-300/80 font-bold">
-                                                {Math.round(item.mass_g * mult)}g
-                                            </div>
-                                        )}
                                     </div>
+                                )}
+                            </div>
+
+                            {/* Macro Distribution Bar */}
+                            <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden flex gap-0.5 mb-4">
+                                <div style={{ width: `${carbPercent}%` }} className="h-full bg-amber-400 rounded-l-full transition-all duration-300" title={`Carbs: ${carbPercent}%`} />
+                                <div style={{ width: `${proteinPercent}%` }} className="h-full bg-emerald-400 transition-all duration-300" title={`Protein: ${proteinPercent}%`} />
+                                <div style={{ width: `${fatPercent}%` }} className="h-full bg-rose-400 rounded-r-full transition-all duration-300" title={`Fat: ${fatPercent}%`} />
+                            </div>
+
+                            {/* Macro Cards */}
+                            <div className="grid grid-cols-3 gap-2.5">
+                                <div className="bg-amber-400/10 border border-amber-400/20 rounded-2xl p-3 text-center">
+                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-amber-300/80 mb-0.5">Carbs</span>
+                                    <span className="text-lg font-black text-amber-300">{Math.round(macros.carbs)}<span className="text-xs font-medium">g</span></span>
+                                    <span className="block text-[10px] text-amber-400/60 font-medium">{carbPercent}%</span>
                                 </div>
+                                <div className="bg-emerald-400/10 border border-emerald-400/20 rounded-2xl p-3 text-center">
+                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-emerald-300/80 mb-0.5">Protein</span>
+                                    <span className="text-lg font-black text-emerald-300">{Math.round(macros.protein)}<span className="text-xs font-medium">g</span></span>
+                                    <span className="block text-[10px] text-emerald-400/60 font-medium">{proteinPercent}%</span>
+                                </div>
+                                <div className="bg-rose-400/10 border border-rose-400/20 rounded-2xl p-3 text-center">
+                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-rose-300/80 mb-0.5">Fat</span>
+                                    <span className="text-lg font-black text-rose-300">{Math.round(macros.fat)}<span className="text-xs font-medium">g</span></span>
+                                    <span className="block text-[10px] text-rose-400/60 font-medium">{fatPercent}%</span>
+                                </div>
+                            </div>
+                        </motion.div>
 
-                                {/* Macros pill & Portion Stepper */}
-                                <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                                    <div className="flex items-center gap-2 text-[11px] font-semibold text-white/60">
-                                        <span className="text-amber-400/90">{itemCarbs}g C</span>
-                                        <span className="text-white/20">•</span>
-                                        <span className="text-emerald-400/90">{itemProtein}g P</span>
-                                        <span className="text-white/20">•</span>
-                                        <span className="text-rose-400/90">{itemFat}g F</span>
-                                    </div>
+                        {/* Food Items Breakdown List */}
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between px-1">
+                                <span className="text-xs font-bold uppercase tracking-wider text-white/40">
+                                    Food Items & Multipliers ({items.length})
+                                </span>
+                                <span className="text-[11px] text-white/40">Fine-tune with - / +</span>
+                            </div>
 
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex items-center bg-black/40 border border-white/10 rounded-xl p-0.5">
-                                            <button
-                                                type="button"
-                                                onClick={() => updateMultiplier(idx, -0.25)}
-                                                className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/10 text-white/70 hover:text-white transition-colors"
-                                                title="Decrease portion"
-                                            >
-                                                <Minus className="w-3.5 h-3.5" />
-                                            </button>
-                                            <span className="px-2 font-mono text-xs font-bold text-white min-w-[42px] text-center">
-                                                {mult}x
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => updateMultiplier(idx, 0.25)}
-                                                className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/10 text-white/70 hover:text-white transition-colors"
-                                                title="Increase portion"
-                                            >
-                                                <Plus className="w-3.5 h-3.5" />
-                                            </button>
-                                        </div>
+                            <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1.5 custom-scrollbar">
+                                {items.map((item, idx) => {
+                                    const mult = item.multiplier || 1;
+                                    const itemCals = Math.round((Number(item.calories) || 0) * mult);
+                                    const itemCarbs = Math.round((Number(item.carbs) || 0) * mult);
+                                    const itemProtein = Math.round((Number(item.protein) || 0) * mult);
+                                    const itemFat = Math.round((Number(item.fat) || 0) * mult);
 
-                                        <button
-                                            type="button"
-                                            onClick={() => removeItem(idx)}
-                                            className="w-8 h-8 rounded-xl bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 flex items-center justify-center transition-colors"
-                                            title="Remove item"
+                                    return (
+                                        <motion.div
+                                            key={idx}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: idx * 0.04 }}
+                                            className="bg-white/[0.04] hover:bg-white/[0.06] border border-white/10 rounded-2xl p-4 transition-all backdrop-blur-md"
                                         >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                    </div>
-                                </div>
-                            </motion.div>
-                        );
-                    })}
-                </div>
-            </div>
+                                            <div className="flex items-start justify-between gap-3 mb-3">
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <ItemThumbnail image={item.image} name={item.name} />
 
-            {/* Bottom Floating Action Bar */}
-            <div className="fixed bottom-0 left-0 right-0 z-50 p-4 bg-gradient-to-t from-[#070709] via-[#070709]/95 to-transparent backdrop-blur-xl border-t border-white/10">
-                <div className="max-w-lg mx-auto flex items-center gap-3">
-                    <button
-                        type="button"
-                        onClick={() => navigate('/home')}
-                        className="px-5 py-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 font-bold text-sm text-white/70 hover:text-white transition-colors flex items-center justify-center gap-2"
-                    >
-                        <X className="w-4 h-4" />
-                        <span>Discard</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={handleSave}
-                        disabled={isSaving}
-                        className="flex-1 py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-black font-black text-sm tracking-wide flex items-center justify-center gap-2.5 shadow-xl shadow-amber-500/25 transition-all disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99]"
-                    >
-                        {isSaving ? (
-                            <>
-                                <motion.div
-                                    animate={{ rotate: 360 }}
-                                    transition={{ repeat: Infinity, duration: 1 }}
-                                    className="w-4 h-4 border-2 border-black border-t-transparent rounded-full"
-                                />
-                                <span>Running AI Health Agents...</span>
-                            </>
-                        ) : (
-                            <>
-                                <Check className="w-5 h-5 stroke-[3]" />
-                                <span>Confirm & Log {Math.round(totalCalories)} kcal</span>
-                            </>
-                        )}
-                    </button>
+                                                    <div className="min-w-0">
+                                                        <h4 className="font-extrabold text-sm text-white capitalize leading-snug truncate">
+                                                            {item.name}
+                                                        </h4>
+                                                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                                                            <span className="text-xs text-white/50 font-medium truncate">
+                                                                {item.serving || '1 portion'}
+                                                            </span>
+                                                            {item.mass_g != null && (
+                                                                <span className="text-[11px] font-bold text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded-md border border-amber-400/20 shrink-0">
+                                                                    ⚖️ {Math.round(item.mass_g * mult)}g
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-right shrink-0">
+                                                    <div className="font-mono font-black text-base text-white">
+                                                        {itemCals}
+                                                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider ml-1">kcal</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Macros & Stepper Row */}
+                                            <div className="flex items-center justify-between pt-2.5 border-t border-white/5">
+                                                <div className="flex items-center gap-2 text-[11px] font-semibold text-white/60">
+                                                    <span className="text-amber-400/90">{itemCarbs}g C</span>
+                                                    <span className="text-white/20">•</span>
+                                                    <span className="text-emerald-400/90">{itemProtein}g P</span>
+                                                    <span className="text-white/20">•</span>
+                                                    <span className="text-rose-400/90">{itemFat}g F</span>
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex items-center bg-black/40 border border-white/10 rounded-xl p-0.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => updateMultiplier(idx, -0.25)}
+                                                            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/10 text-white/70 hover:text-white transition-colors cursor-pointer"
+                                                            title="Decrease portion"
+                                                        >
+                                                            <Minus className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <span className="px-2 font-mono text-xs font-bold text-white min-w-[40px] text-center">
+                                                            {mult}x
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => updateMultiplier(idx, 0.25)}
+                                                            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/10 text-white/70 hover:text-white transition-colors cursor-pointer"
+                                                            title="Increase portion"
+                                                        >
+                                                            <Plus className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeItem(idx)}
+                                                        className="w-7 h-7 rounded-xl bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 flex items-center justify-center transition-colors cursor-pointer ml-1"
+                                                        title="Remove item"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Confirmation CTAs */}
+                        <div className="pt-2 flex items-center gap-4">
+                            <button
+                                type="button"
+                                onClick={() => navigate(-1)}
+                                className="px-5 py-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 font-bold text-sm text-white/70 hover:text-white transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                                <RotateCcw className="w-4 h-4" />
+                                <span>Adjust Portions</span>
+                            </button>
+
+                            <motion.button
+                                whileHover={{ scale: 1.01 }}
+                                whileTap={{ scale: 0.99 }}
+                                type="button"
+                                onClick={handleSave}
+                                disabled={isSaving || items.length === 0}
+                                className="flex-1 py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-black font-black text-base shadow-xl shadow-amber-400/25 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50 cursor-pointer"
+                            >
+                                {isSaving ? (
+                                    <>
+                                        <motion.div
+                                            animate={{ rotate: 360 }}
+                                            transition={{ repeat: Infinity, duration: 1 }}
+                                            className="w-5 h-5 border-2 border-black border-t-transparent rounded-full"
+                                        />
+                                        <span>Saving & Running Health Agents...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Check className="w-5 h-5 stroke-[3]" />
+                                        <span>Confirm & Log {Math.round(totalCalories)} kcal</span>
+                                    </>
+                                )}
+                            </motion.button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

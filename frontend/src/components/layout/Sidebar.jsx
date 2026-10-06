@@ -1,11 +1,12 @@
 import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { HeartPulse, Home, LogOut, Settings, Soup, User, Utensils } from 'lucide-react';
 import { auth } from '../../config/firebase';
 import { signOut } from 'firebase/auth';
 
 const Sidebar = () => {
     const navigate = useNavigate();
+    const location = useLocation();
 
     const handleLogout = async () => {
         await signOut(auth);
@@ -15,7 +16,7 @@ const Sidebar = () => {
 
     const navItems = [
         { name: 'Home', path: '/home', icon: Home },
-        { name: 'Log Food', path: '/log', icon: Utensils },
+        { name: 'Log Food', path: '/log/photo', icon: Utensils, matchPrefix: '/log' },
         { name: 'Meal Plan', path: '/meal-plan', icon: Soup },
         { name: 'Health', path: '/health', icon: HeartPulse },
         { name: 'Profile', path: '/profile', icon: User },
@@ -33,21 +34,26 @@ const Sidebar = () => {
                 </div>
 
                 <nav className="space-y-2">
-                    {navItems.map((item) => (
-                        <NavLink
-                            key={item.path}
-                            to={item.path}
-                            className={({ isActive }) => `
-                flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all duration-300 group
-                ${isActive
-                                    ? 'bg-primary/20 text-white shadow-lg shadow-primary/10'
-                                    : 'text-white/40 hover:text-white hover:bg-white/5'}
-              `}
-                        >
-                            <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
-                            <span className="font-bold tracking-wide text-sm">{item.name}</span>
-                        </NavLink>
-                    ))}
+                    {navItems.map((item) => {
+                        const isActive = item.matchPrefix
+                            ? location.pathname.startsWith(item.matchPrefix)
+                            : location.pathname === item.path;
+                        return (
+                            <NavLink
+                                key={item.path}
+                                to={item.path}
+                                className={`
+                    flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all duration-300 group
+                    ${isActive
+                                        ? 'bg-primary/20 text-white shadow-lg shadow-primary/10'
+                                        : 'text-white/40 hover:text-white hover:bg-white/5'}
+                  `}
+                            >
+                                <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
+                                <span className="font-bold tracking-wide text-sm">{item.name}</span>
+                            </NavLink>
+                        );
+                    })}
                 </nav>
             </div>
 
