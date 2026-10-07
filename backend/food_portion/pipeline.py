@@ -3,7 +3,7 @@ import os
 import cv2
 import numpy as np
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 
 from .detection.yolo_detector import FoodDetector, Detection
 from .segmentation.sam_segmenter import FoodSegmenter, FoodInstance
@@ -58,6 +58,7 @@ class FoodPortionPipeline:
         image_input: Any,
         gemini_model: Optional[Any] = None,
         initial_detections: Optional[List[Any]] = None,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         """Executes the full physical measurement pipeline on an input image with structured tracing."""
         pipeline_start_t = time.perf_counter()
@@ -134,6 +135,16 @@ class FoodPortionPipeline:
                 "items": detection_records,
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 1,
+                    "name": "YOLOv8 Object Detection",
+                    "duration_ms": round(t_detect, 1),
+                    "details": {"detected_count": len(detections), "items": [d["class_name"] for d in detection_records]},
+                })
+            except Exception:
+                pass
 
         # ---------------------------------------------------------------------
         # 2. Instance Mask Extraction (SAM / SAM2)
@@ -170,6 +181,16 @@ class FoodPortionPipeline:
                 "instances": instance_records,
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 2,
+                    "name": "SAM2 Instance Segmentation",
+                    "duration_ms": round(t_seg, 1),
+                    "details": {"segmented_count": len(instances), "instances": [i["food_class"] for i in instance_records]},
+                })
+            except Exception:
+                pass
 
         # ---------------------------------------------------------------------
         # 3. Metric Scale Calibration (Plate diameter & perspective)
@@ -200,6 +221,20 @@ class FoodPortionPipeline:
                 "reference_method": "plate_contour_ellipse" if calibration.plate_detected else "prior_camera_calibration",
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 3,
+                    "name": "Metric Scale Calibration",
+                    "duration_ms": round(t_calib, 1),
+                    "details": {
+                        "pixels_per_cm": round(calibration.pixels_per_cm, 2),
+                        "cm_per_pixel": round(calibration.cm_per_pixel, 4),
+                        "plate_detected": calibration.plate_detected,
+                    },
+                })
+            except Exception:
+                pass
 
         # Separate food instances from container instances
         food_instances = [inst for inst in instances if not inst.is_container]
@@ -245,6 +280,16 @@ class FoodPortionPipeline:
                 "instances_elevation": depth_records,
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 4,
+                    "name": "Monocular Depth Mapping",
+                    "duration_ms": round(t_depth, 1),
+                    "details": {"depth_map_shape": f"{depth_map.shape[1]}x{depth_map.shape[0]}", "elevations": elev_summary},
+                })
+            except Exception:
+                pass
 
         # ---------------------------------------------------------------------
         # 5. Occlusion Analysis & Hidden Surface Reconstruction
@@ -285,6 +330,16 @@ class FoodPortionPipeline:
                 "occlusion_metrics": occlusion_records,
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 5,
+                    "name": "Occlusion Reconstruction",
+                    "duration_ms": round(t_occl, 1),
+                    "details": {"occlusion_summary": occl_summary},
+                })
+            except Exception:
+                pass
 
         # ---------------------------------------------------------------------
         # 6. Category-Specific 3D Volumetric Integration
@@ -319,6 +374,16 @@ class FoodPortionPipeline:
                 "volumes": volume_records,
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 6,
+                    "name": "3D Volumetric Integration",
+                    "duration_ms": round(t_vol, 1),
+                    "details": {"volumes": vol_summary},
+                })
+            except Exception:
+                pass
 
         # ---------------------------------------------------------------------
         # 7. Empirical Density & Mass Calculation
@@ -353,6 +418,16 @@ class FoodPortionPipeline:
                 "mass_estimates": mass_records,
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 7,
+                    "name": "Density & Mass Calculation",
+                    "duration_ms": round(t_mass, 1),
+                    "details": {"mass_estimates": mass_summary},
+                })
+            except Exception:
+                pass
 
         # ---------------------------------------------------------------------
         # 8. Uncertainty Quantification & Prediction Range
@@ -389,6 +464,16 @@ class FoodPortionPipeline:
                 "scene_assessment": scene_assessment,
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 8,
+                    "name": "Uncertainty & Confidence",
+                    "duration_ms": round(t_conf, 1),
+                    "details": {"prediction_intervals": pred_summary, "scene_assessment": scene_assessment},
+                })
+            except Exception:
+                pass
 
         # ---------------------------------------------------------------------
         # 9. Gemini Semantic Validation & Clinical Macros
@@ -422,6 +507,16 @@ class FoodPortionPipeline:
                 "item_macros": gemini_result.get("items", []),
             },
         })
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": 9,
+                    "name": "Gemini Clinical Validation",
+                    "duration_ms": round(t_gem, 1),
+                    "details": {"reasoning": gemini_result.get("reasoning", ""), "validated_count": len(food_instances)},
+                })
+            except Exception:
+                pass
 
         # Assemble final structured payload
         processed_items = []

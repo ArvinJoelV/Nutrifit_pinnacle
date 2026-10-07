@@ -8,7 +8,7 @@ import MealPhotoViewer from '../../components/log/MealPhotoViewer';
 import EnhancedPortionEditor from '../../components/log/EnhancedPortionEditor';
 import PipelineInspectorModal from '../../components/log/PipelineInspectorModal';
 import PipelineAnalysisTracker, { PIPELINE_STAGES } from '../../components/log/PipelineAnalysisTracker';
-import { analyzeMealImage } from '../../services/mealAnalysisService';
+import { analyzeMealImageStream, analyzeMealImage } from '../../services/mealAnalysisService';
 import { getDailyStats } from '../../services/mealService';
 import { getUserProfile, calculateDiabetesNutritionPlan } from '../../services/userService';
 import { getGoogleFitActivity } from '../../services/googleFitService';
@@ -86,6 +86,7 @@ const PhotoLogPage = () => {
     const [isInspectorOpen, setIsInspectorOpen] = useState(false);
     const [currentStageIndex, setCurrentStageIndex] = useState(1);
     const [isAnalysisComplete, setIsAnalysisComplete] = useState(false);
+    const [liveStageInfo, setLiveStageInfo] = useState({ broker: '', duration_ms: null, stageDurations: {} });
 
     const { formData } = useOnboarding();
     const initialTargets = getInitialCachedTargets();
@@ -185,6 +186,7 @@ const PhotoLogPage = () => {
         setDetectedItems([]);
         setCurrentStageIndex(1);
         setIsAnalysisComplete(false);
+        setLiveStageInfo({ broker: '', duration_ms: null, stageDurations: {} });
         setStep('analyzing');
     };
 
@@ -196,30 +198,25 @@ const PhotoLogPage = () => {
         setCurrentStageIndex(1);
         setIsAnalysisComplete(false);
 
-        const STAGE_DELAYS = [
-            { stage: 1, delay: 0 },
-            { stage: 2, delay: 500 },
-            { stage: 3, delay: 1100 },
-            { stage: 4, delay: 1900 },
-            { stage: 5, delay: 2800 },
-            { stage: 6, delay: 3800 },
-            { stage: 7, delay: 4900 },
-            { stage: 8, delay: 6000 },
-            { stage: 9, delay: 7200 },
-        ];
-
-        const timerIds = STAGE_DELAYS.map(({ stage, delay }) => {
-            if (delay === 0) return null;
-            return setTimeout(() => {
-                if (!isCancelled) {
-                    setCurrentStageIndex(stage);
-                }
-            }, delay);
-        }).filter(Boolean);
-
         const runAnalysis = async () => {
             try {
-                const result = await analyzeMealImage(imageFile, { signal: controller.signal });
+                const result = await analyzeMealImageStream(imageFile, {
+                    signal: controller.signal,
+                    onStageProgress: (evt) => {
+                        if (isCancelled) return;
+                        if (evt.stage && evt.stage >= 1 && evt.stage <= 9) {
+                            setCurrentStageIndex(evt.stage);
+                        }
+                        setLiveStageInfo((prev) => ({
+                            broker: evt.broker || prev.broker,
+                            duration_ms: evt.duration_ms || prev.duration_ms,
+                            stageDurations: {
+                                ...prev.stageDurations,
+                                ...(evt.stage && evt.duration_ms ? { [evt.stage]: evt.duration_ms } : {}),
+                            },
+                        }));
+                    },
+                });
                 if (isCancelled) return;
 
                 // Advance to final completed state
@@ -253,10 +250,9 @@ const PhotoLogPage = () => {
 
         return () => {
             isCancelled = true;
-            timerIds.forEach(id => clearTimeout(id));
             controller.abort();
         };
-    }, [imageFile, step]);
+    }, [imageFile, step, selectedMealType]);
 
     useEffect(() => () => {
         if (image && image.startsWith('blob:')) {
@@ -526,6 +522,7 @@ const PhotoLogPage = () => {
                             <PipelineAnalysisTracker
                                 currentStage={currentStageIndex}
                                 isCompleted={isAnalysisComplete}
+                                liveStageInfo={liveStageInfo}
                             />
                         </div>
                     </motion.div>

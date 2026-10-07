@@ -14,6 +14,7 @@ import {
     Loader2,
     Cpu,
     Zap,
+    Radio,
 } from 'lucide-react';
 
 export const PIPELINE_STAGES = [
@@ -109,8 +110,8 @@ export const PIPELINE_STAGES = [
     },
 ];
 
-const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false }) => {
-    const activeStageData = PIPELINE_STAGES[Math.min(currentStage - 1, PIPELINE_STAGES.length - 1)] || PIPELINE_STAGES[0];
+const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false, liveStageInfo = {} }) => {
+    const activeStageData = PIPELINE_STAGES[Math.min(Math.max(currentStage - 1, 0), PIPELINE_STAGES.length - 1)] || PIPELINE_STAGES[0];
     const progressPercent = isCompleted ? 100 : Math.min(95, Math.round((currentStage / PIPELINE_STAGES.length) * 100));
 
     return (
@@ -139,11 +140,11 @@ const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false }) => {
                         <div className="flex items-center gap-2">
                             <h3 className="font-black text-base text-white tracking-tight">AI Nutrition Pipeline</h3>
                             <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-widest bg-primary/20 text-primary border border-primary/30 flex items-center gap-1">
-                                <Zap className="w-2.5 h-2.5" /> Live
+                                <Radio className="w-2.5 h-2.5 animate-pulse" /> {liveStageInfo?.broker || 'Live SSE'}
                             </span>
                         </div>
                         <p className="text-xs text-white/50 mt-0.5">
-                            Real-time 9-stage Computer Vision & 3D Estimation
+                            Real-time 9-stage CV streaming via Redis Pub/Sub & Kafka
                         </p>
                     </div>
                 </div>
@@ -197,8 +198,16 @@ const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false }) => {
                     </div>
 
                     <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-300 text-xs font-bold">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Running</span>
+                        {isCompleted ? (
+                            <span className="text-emerald-400 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Done
+                            </span>
+                        ) : (
+                            <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>{liveStageInfo?.duration_ms ? `${liveStageInfo.duration_ms}ms` : 'Processing'}</span>
+                            </>
+                        )}
                     </div>
                 </div>
             </motion.div>
@@ -210,6 +219,7 @@ const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false }) => {
                     const isCurrent = !isCompleted && s.stage === currentStage;
                     const isPending = !isCompleted && s.stage > currentStage;
                     const Icon = s.icon;
+                    const stageDur = liveStageInfo?.stageDurations?.[s.stage];
 
                     return (
                         <div
@@ -255,7 +265,7 @@ const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false }) => {
                             <div className="shrink-0 text-right">
                                 {isDone ? (
                                     <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-                                        Passed
+                                        {stageDur ? `${stageDur}ms` : 'Passed'}
                                     </span>
                                 ) : isCurrent ? (
                                     <span className="text-[10px] font-bold text-amber-300 flex items-center gap-1 uppercase tracking-wider">

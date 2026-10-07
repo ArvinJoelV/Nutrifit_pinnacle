@@ -14,6 +14,10 @@ from meal_recipes import (
     RecipeComponent,
     get_recipes_for_meal_type,
 )
+try:
+    from infrastructure.cache import cache
+except Exception:
+    cache = None
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -379,6 +383,9 @@ def _build_nutrition_lookup(nutrition_df: pd.DataFrame) -> Dict[str, Dict[str, f
     }
     if nutrition_df is _CACHED_NUTRITION_DF or _CACHED_NUTRITION_DF is None:
         _CACHED_NUTRITION_LOOKUP = lookup
+    if cache:
+        for fname, fvals in lookup.items():
+            cache.set_food_nutrition(fname, fvals)
     return lookup
 
 
@@ -424,6 +431,13 @@ def _resolve_ingredient_name(
     normalized = normalize_ingredient_name(ingredient)
     if resolution_cache is not None and normalized in resolution_cache:
         return resolution_cache[normalized]
+
+    if cache:
+        cached_res = cache.get(f"food:resolve:{normalized}")
+        if cached_res is not None:
+            if resolution_cache is not None:
+                resolution_cache[normalized] = cached_res
+            return cached_res
 
     global _CACHED_CANONICAL_MAP
     canonical_query = _canonicalize_name(normalized)
@@ -476,6 +490,8 @@ def _resolve_ingredient_name(
 
     if resolution_cache is not None:
         resolution_cache[normalized] = resolved
+    if cache and resolved:
+        cache.set(f"food:resolve:{normalized}", resolved, ttl=86400 * 7)
     return resolved
 
 
