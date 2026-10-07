@@ -6,12 +6,70 @@ import shutil
 
 # Initialize Models
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-yolo_model_path = os.path.join(BASE_DIR, "models", "food_detection_yolov8_model1.pt")
-if not os.path.exists(yolo_model_path):
-    yolo_model_path = os.path.join(BASE_DIR, "models", "food_detection_yolov8_model.pt")
-yolo_model = YOLO(yolo_model_path)
-sam_model_path = os.path.join(BASE_DIR, "sam2_b.pt") if os.path.exists(os.path.join(BASE_DIR, "sam2_b.pt")) else "sam2_b.pt"
-sam_model = SAM(sam_model_path)
+
+def _is_lfs_pointer(path):
+    if not path or not os.path.exists(path):
+        return True
+    try:
+        with open(path, "rb") as f:
+            header = f.read(20)
+            return header.startswith(b"version https://")
+    except Exception:
+        return True
+
+_yolo_instance = None
+_sam_instance = None
+
+def get_yolo_model():
+    global _yolo_instance
+    if _yolo_instance is not None:
+        return _yolo_instance
+    yolo_model_path = os.path.join(BASE_DIR, "models", "food_detection_yolov8_model1.pt")
+    if not os.path.exists(yolo_model_path) or _is_lfs_pointer(yolo_model_path):
+        yolo_model_path = os.path.join(BASE_DIR, "models", "food_detection_yolov8_model.pt")
+    
+    if _is_lfs_pointer(yolo_model_path):
+        yolo_model_path = "yolov8n.pt"
+
+    try:
+        _yolo_instance = YOLO(yolo_model_path)
+    except Exception:
+        _yolo_instance = YOLO("yolov8n.pt")
+    return _yolo_instance
+
+def get_sam_model():
+    global _sam_instance
+    if _sam_instance is not None:
+        return _sam_instance
+    sam_model_path = os.path.join(BASE_DIR, "sam2_b.pt") if os.path.exists(os.path.join(BASE_DIR, "sam2_b.pt")) else "sam2_b.pt"
+    if _is_lfs_pointer(sam_model_path):
+        sam_model_path = "sam2.1_t.pt"
+    try:
+        _sam_instance = SAM(sam_model_path)
+    except Exception:
+        try:
+            _sam_instance = SAM("sam2.1_t.pt")
+        except Exception:
+            _sam_instance = None
+    return _sam_instance
+
+class _LazyModelProxy:
+    def __init__(self, loader):
+        self._loader = loader
+
+    def __call__(self, *args, **kwargs):
+        model = self._loader()
+        return model(*args, **kwargs) if model else []
+
+    def predict(self, *args, **kwargs):
+        model = self._loader()
+        return model.predict(*args, **kwargs) if model else []
+
+    def __getattr__(self, name):
+        return getattr(self._loader(), name)
+
+yolo_model = _LazyModelProxy(get_yolo_model)
+sam_model = _LazyModelProxy(get_sam_model)
 
 CROP_DIR = "static/cropped_mask"
 SAM_OUTPUT_DIR = "static/mask"
