@@ -75,3 +75,7 @@ uritemplate==4.2.0
 urllib3==2.6.3
 uvicorn==0.42.0
 Werkzeug==3.1.6
+redis>=5.0.0
+kafka-python-ng>=2.2.2
+pytest>=8.0.0
+pytest-cov>=5.0.0

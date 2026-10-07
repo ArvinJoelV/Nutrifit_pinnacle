@@ -1,0 +1,81 @@
+{
+  "family": "nutrifit-production",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::123456789012:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "nutrifit-backend",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/nutrifit-backend:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 9510,
+          "hostPort": 9510,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "PORT", "value": "9510" },
+        { "name": "REDIS_URL", "value": "redis://localhost:6379/0" },
+        { "name": "KAFKA_BOOTSTRAP_SERVERS", "value": "localhost:9092" },
+        { "name": "GEMINI_MODEL", "value": "gemini-2.5-flash" }
+      ],
+      "secrets": [
+        {
+          "name": "GOOGLE_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:nutrifit/google_api_key"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/nutrifit",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "backend"
+        }
+      }
+    },
+    {
+      "name": "nutrifit-frontend",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/nutrifit-frontend:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "hostPort": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "dependsOn": [
+        {
+          "containerName": "nutrifit-backend",
+          "condition": "START"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/nutrifit",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "frontend"
+        }
+      }
+    },
+    {
+      "name": "nutrifit-redis",
+      "image": "redis:7.2-alpine",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 6379,
+          "hostPort": 6379,
+          "protocol": "tcp"
+        }
+      ]
+    }
+  ]
+}

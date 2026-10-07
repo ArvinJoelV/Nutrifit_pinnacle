@@ -15,3 +15,7 @@ static/cropped_mask/
 *.pt
 lcd_crop.jpg
 scale_crop.jpg
+.coverage
+.pytest_cache/
+htmlcov/
+coverage.xml
