@@ -66,8 +66,22 @@ def soft_nms(
         for d in sorted_foods:
             iou = compute_iou(best.bbox, d.bbox)
             if iou > 0.0:
-                # If distinct classes overlap (e.g. dal on rice, or pickle in thali),
-                # apply milder decay so we don't discard the smaller or composite food
+                # 1. Same-class duplicate suppression:
+                # Discard duplicate bounding boxes of the exact same food class
+                if d.class_name.lower() == best.class_name.lower() and iou > 0.38:
+                    continue
+
+                # 2. Same-compartment / bowl conflict resolution:
+                # If two different food classes compete for the exact same physical space (> 0.70 IoU)
+                # and are of comparable size (neither is a small garnish/sauce), keep only the higher-confidence winner
+                if iou > 0.68:
+                    area_best = max(1.0, (best.bbox[2] - best.bbox[0]) * (best.bbox[3] - best.bbox[1]))
+                    area_d = max(1.0, (d.bbox[2] - d.bbox[0]) * (d.bbox[3] - d.bbox[1]))
+                    area_ratio = min(area_best, area_d) / max(area_best, area_d)
+                    if area_ratio > 0.55:
+                        continue  # Suppress the lower-confidence competitor for this compartment
+
+                # 3. Soft-NMS continuous Gaussian decay for overlapping food layers / composite dishes
                 if preserve_distinct_classes and d.class_name != best.class_name:
                     decay = np.exp(-(iou * iou) / (sigma * 1.5))
                 else:

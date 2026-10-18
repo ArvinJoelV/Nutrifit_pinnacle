@@ -246,8 +246,8 @@ class OptimizedFoodPortionPipeline:
             inst.depth_stats = get_depth_stats(elevation_map, inst.visible_mask)
             depth_records.append({
                 "food_class": inst.food_class,
-                "mean_elevation_cm": round(float(inst.depth_stats.get("mean_depth", 0.0)), 2),
-                "max_elevation_cm": round(float(inst.depth_stats.get("max_depth", 0.0)), 2),
+                "mean_elevation_cm": round(float(inst.depth_stats.get("mean") or inst.depth_stats.get("mean_depth", 0.0)), 2),
+                "max_elevation_cm": round(float(inst.depth_stats.get("max") or inst.depth_stats.get("max_depth", 0.0)), 2),
             })
 
         print(f"\n▶ [4/9] RANSAC 3D Surface Fitting & Metric Elevation | {t_depth:.1f}ms")
