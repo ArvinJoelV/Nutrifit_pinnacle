@@ -115,13 +115,28 @@ Physical Measurements:
 {json.dumps(measurements, indent=2)}
 
 Tasks:
-1. Examine the image and check each item's detected label. If an item was misclassified (e.g. papad misclassified as chapathi, parotta misclassified as naan, salna/gravy misclassified as sambar) or has a generic name (e.g. "curry / sabzi", "pickle / chutney"), REFINE and CORRECT the "food" name to the exact authentic dish name visible in the image (e.g., "Malabar Parotta", "Salna / Chicken Gravy", "Raita / Yogurt Chutney", "Roasted Papad", "Palak Paneer", "Aloo Gobi / Mixed Vegetable Sabzi", "Mango Pickle", "Yellow Dal", "Plain Rice", "Chicken Curry").
-2. Match each CV-detected item by its exact integer "id" (0 to {len(instances) - 1}).
-3. VERIFY ESTIMATED MASS: Check if the physically estimated grams match reality for the visual portion on the plate. If reasonable, keep it. If the CV pipeline under- or over-estimated the portion, correct "mass_g" to the realistic serving mass.
-4. DETECT MISSED FOOD ITEMS (INFILL): If you see distinct food items, curries, gravies, meat pieces, or side dishes on the plate that were NOT listed in the CV physical measurements above (for example, chicken curry pieces or chicken gravy poured on/beside rice), you MUST ADD them as separate items in the "items" array!
-   - For any added item, set "id": {len(instances)} + offset, "is_supplemented": true, provide the authentic "food" name, visual estimated "mass_g", realistic "mass_range_g", and accurate macronutrients.
-5. Compute exact macronutrients (calories, protein, carbs, fat, fiber) tailored specifically to the grams of each item.
-6. Provide a brief 1-2 sentence clinical nutrition explanation.
+1. IDENTIFY AUTHENTIC DISHES WITH HIGH VISUAL FIDELITY:
+   Examine the image and check each item's detected label. If an item was misclassified (e.g. papad misclassified as chapathi, parotta misclassified as naan) or has a generic name (e.g. "curry / sabzi", "pickle / chutney"), REFINE and CORRECT the "food" name to the exact authentic dish name visible in the image (e.g., "Roasted Papad", "Palak Paneer", "Aloo Gobi / Cauliflower Sabzi", "Mango Pickle", "Yellow Dal", "Plain Rice", "Aloo Paratha / Roti").
+
+   CRITICAL INDIAN CUISINE & VEGETARIAN FIDELITY RULE:
+   In authentic Indian meals and Thalis (containing Dal, Rice, Roti/Paratha, Papad, and Pickle):
+   - Red/orange spiced curries with chunks/cubes are almost always VEGETARIAN:
+     * Cubes in spiced gravy/masala = PANEER (e.g. "Palak Paneer", "Kadai Paneer", "Paneer Bhurji"), NOT chicken!
+     * Cauliflower florets or potato pieces = ALOO GOBI or VEGETABLE SABZI, NOT chicken!
+     * Dark seasoned condiment in a small bowl = MANGO PICKLE or SPICY CHUTNEY, NOT meat!
+     * Yellow lentil soup in a small bowl = YELLOW DAL / DAL TADKA, NOT sandwich or bread!
+   - Generic object detectors often mislabel red/orange vegetarian gravies as "tandoori-chicken" or "fried-chicken". DO NOT classify dishes as chicken or poultry unless actual chicken bones or meat fibers are visibly unmistakable. On vegetarian thalis, identify curries by their true vegetarian ingredients.
+
+2. CONTAINER FIDELITY & EXACT ITEM MATCHING:
+   - Match each physically detected item by its exact integer "id" (0 to {len(instances) - 1}).
+   - The detected physical items ({len(instances)}) correspond to the distinct bowls and plate portions.
+   - Do NOT add redundant or hallucinated items if all physical bowls and plate regions are already accounted for.
+
+3. VERIFY ESTIMATED MASS:
+   Check if the physically estimated grams match reality for the visual portion on the plate. If the CV pipeline under- or over-estimated the portion, adjust "mass_g" to the realistic serving mass.
+
+4. Compute exact macronutrients (calories, protein, carbs, fat, fiber) tailored specifically to the grams of each item.
+5. Provide a brief 1-2 sentence clinical nutrition explanation.
 
 Output ONLY a JSON object:
 {{

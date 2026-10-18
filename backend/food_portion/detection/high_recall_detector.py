@@ -190,6 +190,41 @@ class HighRecallFoodDetector(FoodDetector):
             preserve_distinct_classes=True,
         )
 
+        # 6. Container Spatial Exclusivity (Bowl / Katori Constraint)
+        # Small dish containers (bowls, cups, katoris) in thalis hold exactly ONE dish each.
+        # Suppress competing candidate food detections inside the same bowl.
+        containers_kept = [d for d in refined_detections if d.is_container]
+        foods_kept = [d for d in refined_detections if not d.is_container]
+
+        # Identify sub-bowls (distinguish small portion bowls from the main platter plate)
+        sub_bowls = [
+            c for c in containers_kept
+            if any(k in c.class_name.lower() for k in ["bowl", "cup", "katori"])
+            or ((c.bbox[2] - c.bbox[0]) < 0.65 * w and (c.bbox[3] - c.bbox[1]) < 0.65 * h)
+        ]
+
+        if sub_bowls and foods_kept:
+            assigned_by_bowl = {}
+            unassigned_foods = []
+            for f in foods_kept:
+                fcx = (f.bbox[0] + f.bbox[2]) / 2.0
+                fcy = (f.bbox[1] + f.bbox[3]) / 2.0
+                matched_bowl = None
+                for b in sub_bowls:
+                    if b.bbox[0] <= fcx <= b.bbox[2] and b.bbox[1] <= fcy <= b.bbox[3]:
+                        matched_bowl = b
+                        break
+                if matched_bowl:
+                    bid = id(matched_bowl)
+                    # Keep the single highest-confidence food item inside this bowl
+                    if bid not in assigned_by_bowl or f.confidence > assigned_by_bowl[bid].confidence:
+                        assigned_by_bowl[bid] = f
+                else:
+                    unassigned_foods.append(f)
+
+            foods_kept = list(assigned_by_bowl.values()) + unassigned_foods
+            refined_detections = containers_kept + foods_kept
+
         logger.info(
             "HighRecallFoodDetector: Initial=%d, Sliced=%d, Final Refined=%d",
             len(base_detections),
