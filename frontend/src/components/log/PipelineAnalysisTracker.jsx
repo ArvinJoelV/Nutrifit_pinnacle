@@ -110,7 +110,7 @@ export const PIPELINE_STAGES = [
     },
 ];
 
-const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false, liveStageInfo = {} }) => {
+const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false, liveStageInfo = {}, pipelineMode = 'optimized' }) => {
     const activeStageData = PIPELINE_STAGES[Math.min(Math.max(currentStage - 1, 0), PIPELINE_STAGES.length - 1)] || PIPELINE_STAGES[0];
     const progressPercent = isCompleted ? 100 : Math.min(95, Math.round((currentStage / PIPELINE_STAGES.length) * 100));
 
@@ -137,14 +137,23 @@ const PipelineAnalysisTracker = ({ currentStage = 1, isCompleted = false, liveSt
                         <Cpu className="w-5 h-5 animate-pulse" />
                     </div>
                     <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-black text-base text-white tracking-tight">AI Nutrition Pipeline</h3>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-widest border flex items-center gap-1 ${
+                                pipelineMode === 'optimized'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                    : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                            }`}>
+                                {pipelineMode === 'optimized' ? '⚡ V2 Optimized' : '🔄 V1 Legacy'}
+                            </span>
                             <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-widest bg-primary/20 text-primary border border-primary/30 flex items-center gap-1">
                                 <Radio className="w-2.5 h-2.5 animate-pulse" /> {liveStageInfo?.broker || 'Live SSE'}
                             </span>
                         </div>
                         <p className="text-xs text-white/50 mt-0.5">
-                            Real-time 9-stage CV streaming via Redis Pub/Sub & Kafka
+                            {pipelineMode === 'optimized'
+                                ? 'Concurrent Soft-NMS recall & RANSAC 3D planar depth estimation'
+                                : 'Standard sequential YOLOv8 + SAM2 monocular depth pipeline'}
                         </p>
                     </div>
                 </div>

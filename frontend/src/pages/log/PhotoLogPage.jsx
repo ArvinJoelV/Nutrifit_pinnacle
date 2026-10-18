@@ -8,6 +8,8 @@ import MealPhotoViewer from '../../components/log/MealPhotoViewer';
 import EnhancedPortionEditor from '../../components/log/EnhancedPortionEditor';
 import PipelineInspectorModal from '../../components/log/PipelineInspectorModal';
 import PipelineAnalysisTracker, { PIPELINE_STAGES } from '../../components/log/PipelineAnalysisTracker';
+import PipelineSelector from '../../components/log/PipelineSelector';
+import PipelineComparisonModal from '../../components/log/PipelineComparisonModal';
 import { analyzeMealImageStream, analyzeMealImage } from '../../services/mealAnalysisService';
 import { getDailyStats } from '../../services/mealService';
 import { getUserProfile, calculateDiabetesNutritionPlan } from '../../services/userService';
@@ -87,6 +89,8 @@ const PhotoLogPage = () => {
     const [currentStageIndex, setCurrentStageIndex] = useState(1);
     const [isAnalysisComplete, setIsAnalysisComplete] = useState(false);
     const [liveStageInfo, setLiveStageInfo] = useState({ broker: '', duration_ms: null, stageDurations: {} });
+    const [pipelineMode, setPipelineMode] = useState('optimized');
+    const [isComparisonOpen, setIsComparisonOpen] = useState(false);
 
     const { formData } = useOnboarding();
     const initialTargets = getInitialCachedTargets();
@@ -202,6 +206,7 @@ const PhotoLogPage = () => {
             try {
                 const result = await analyzeMealImageStream(imageFile, {
                     signal: controller.signal,
+                    pipelineMode,
                     onStageProgress: (evt) => {
                         if (isCancelled) return;
                         if (evt.stage && evt.stage >= 1 && evt.stage <= 9) {
@@ -237,6 +242,9 @@ const PhotoLogPage = () => {
                     pipeline_trace: result.pipeline_trace || [],
                     pipeline_duration_ms: result.pipeline_duration_ms || 0,
                     execution_target: result.execution_target,
+                    pipeline_mode: result.pipeline_mode || pipelineMode,
+                    pipeline_version: result.pipeline_version,
+                    plane_meta: result.plane_meta,
                 });
                 setStep('review');
             } catch (error) {
@@ -252,7 +260,7 @@ const PhotoLogPage = () => {
             isCancelled = true;
             controller.abort();
         };
-    }, [imageFile, step, selectedMealType]);
+    }, [imageFile, step, selectedMealType, pipelineMode]);
 
     useEffect(() => () => {
         if (image && image.startsWith('blob:')) {
@@ -403,7 +411,30 @@ const PhotoLogPage = () => {
                     </div>
 
                     {/* Right: Actions */}
-                    <div className="flex items-center gap-3 w-full lg:w-auto justify-end">
+                    <div className="flex items-center gap-3 w-full lg:w-auto justify-end flex-wrap">
+                        {/* Active Pipeline Badge */}
+                        <div className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 shadow-sm ${
+                            (analysisMeta?.pipeline_mode || pipelineMode) === 'optimized'
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                                : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                        }`}>
+                            <span className="w-2 h-2 rounded-full animate-pulse bg-current" />
+                            <span>{(analysisMeta?.pipeline_mode || pipelineMode) === 'optimized' ? '⚡ Optimized V2' : '🔄 Legacy V1'}</span>
+                        </div>
+
+                        {/* Benchmark Comparison Button */}
+                        {imageFile && (
+                            <button
+                                type="button"
+                                onClick={() => setIsComparisonOpen(true)}
+                                className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
+                                title="Run live side-by-side comparison of Legacy vs Optimized on this photo"
+                            >
+                                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Compare V1 vs V2</span>
+                            </button>
+                        )}
+
                         {analysisMeta?.pipeline_trace?.length > 0 && (
                             <button
                                 type="button"
@@ -453,6 +484,16 @@ const PhotoLogPage = () => {
                                 <Search className="w-4 h-4" />
                                 <span>Search Food</span>
                             </button>
+                        </div>
+
+                        {/* Pipeline Selector (Optimized V2 vs Legacy V1) */}
+                        <div className="w-full max-w-md mx-auto mb-6">
+                            <PipelineSelector
+                                selectedMode={pipelineMode}
+                                onModeChange={setPipelineMode}
+                                onOpenComparison={() => setIsComparisonOpen(true)}
+                                hasImage={Boolean(imageFile)}
+                            />
                         </div>
 
                         <div className="mb-8 w-full max-w-md mx-auto">
@@ -523,6 +564,7 @@ const PhotoLogPage = () => {
                                 currentStage={currentStageIndex}
                                 isCompleted={isAnalysisComplete}
                                 liveStageInfo={liveStageInfo}
+                                pipelineMode={pipelineMode}
                             />
                         </div>
                     </motion.div>
@@ -570,6 +612,17 @@ const PhotoLogPage = () => {
                     total_mass_g: analysisMeta?.total_mass_g,
                     total_items: detectedItems.length,
                     execution_target: analysisMeta?.execution_target,
+                }}
+            />
+
+            {/* Side-by-Side Pipeline Benchmark Comparison Modal */}
+            <PipelineComparisonModal
+                isOpen={isComparisonOpen}
+                onClose={() => setIsComparisonOpen(false)}
+                imageFile={imageFile}
+                onApplyMode={(newMode) => {
+                    setPipelineMode(newMode);
+                    setIsComparisonOpen(false);
                 }}
             />
         </div>

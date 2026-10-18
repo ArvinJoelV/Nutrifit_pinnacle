@@ -63,25 +63,37 @@ export const formatAnalysisResult = (payload) => {
         pipeline_trace: Array.isArray(payload.pipeline_trace) ? payload.pipeline_trace : [],
         pipeline_duration_ms: toNum(payload.pipeline_duration_ms),
         execution_target: payload.execution_target || 'Local Pipeline',
+        pipeline_mode: payload.pipeline_mode || 'optimized',
+        pipeline_version: payload.pipeline_version || '2.0-high-recall-metric-depth',
+        plane_meta: payload.plane_meta || null,
         segmentedImage: toAbsoluteUrl(payload.segmentedImage),
         originalImage: toAbsoluteUrl(payload.originalImage),
     };
 };
 
 /**
- * Synchronous image analysis (legacy / standard HTTP POST)
+ * Synchronous image analysis (supports ?pipeline=legacy|optimized)
  */
-export const analyzeMealImage = async (file, { signal } = {}) => {
+export const analyzeMealImage = async (file, { signal, pipelineMode } = {}) => {
     if (!file) {
         throw new Error('No image file selected.');
     }
 
     const formData = new FormData();
     formData.append('image', file);
+    if (pipelineMode) {
+        formData.append('pipeline_mode', pipelineMode);
+    }
 
-    const response = await fetch(`${API_BASE_URL}/api/analyze-meal`, {
+    const url = new URL(`${API_BASE_URL}/api/analyze-meal`);
+    if (pipelineMode) {
+        url.searchParams.set('pipeline', pipelineMode);
+    }
+
+    const response = await fetch(url.toString(), {
         method: 'POST',
         body: formData,
+        headers: pipelineMode ? { 'X-Pipeline-Mode': pipelineMode } : {},
         signal,
     });
 
@@ -101,32 +113,41 @@ export const analyzeMealImage = async (file, { signal } = {}) => {
  *    directly from Redis Pub/Sub / SSE into the progress callback.
  * 3. Resolves with full nutrition and 3D portion results upon pipeline completion.
  */
-export const analyzeMealImageStream = async (file, { onStageProgress, signal } = {}) => {
+export const analyzeMealImageStream = async (file, { onStageProgress, signal, pipelineMode } = {}) => {
     if (!file) {
         throw new Error('No image file selected.');
     }
 
     const formData = new FormData();
     formData.append('image', file);
+    if (pipelineMode) {
+        formData.append('pipeline_mode', pipelineMode);
+    }
 
     // 1. Submit job to async endpoint (<50ms response)
     let initData;
     try {
-        const initResponse = await fetch(`${API_BASE_URL}/api/analyze-meal/async`, {
+        const url = new URL(`${API_BASE_URL}/api/analyze-meal/async`);
+        if (pipelineMode) {
+            url.searchParams.set('pipeline', pipelineMode);
+        }
+
+        const initResponse = await fetch(url.toString(), {
             method: 'POST',
             body: formData,
+            headers: pipelineMode ? { 'X-Pipeline-Mode': pipelineMode } : {},
             signal,
         });
 
         initData = await initResponse.json().catch(() => ({}));
         if (!initResponse.ok || !initData.job_id) {
             console.warn('[NutriFit Pipeline] Async endpoint unavailable, falling back to sync POST:', initData?.error);
-            return analyzeMealImage(file, { signal });
+            return analyzeMealImage(file, { signal, pipelineMode });
         }
     } catch (err) {
         if (err.name === 'AbortError') throw err;
         console.warn('[NutriFit Pipeline] Async submission failed, falling back to sync POST:', err);
-        return analyzeMealImage(file, { signal });
+        return analyzeMealImage(file, { signal, pipelineMode });
     }
 
     const { job_id, stream_url, broker } = initData;
@@ -278,4 +299,52 @@ export const getInfrastructureStats = async () => {
     } catch {
         return null;
     }
+};
+
+/**
+ * Get active pipeline configuration ('legacy' vs 'optimized')
+ */
+export const getPipelineConfig = async () => {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/pipeline/config`);
+        if (!res.ok) return null;
+        return await res.json();
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Set active pipeline mode ('legacy' or 'optimized')
+ */
+export const setPipelineConfig = async (mode) => {
+    const res = await fetch(`${API_BASE_URL}/api/pipeline/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.error || 'Failed to update pipeline mode');
+    }
+    return data;
+};
+
+/**
+ * Run side-by-side pipeline comparison on a single image
+ */
+export const comparePipelines = async (file) => {
+    if (!file) throw new Error('No image file selected for comparison');
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const res = await fetch(`${API_BASE_URL}/api/pipeline/compare`, {
+        method: 'POST',
+        body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.error || 'Pipeline comparison failed');
+    }
+    return data;
 };
