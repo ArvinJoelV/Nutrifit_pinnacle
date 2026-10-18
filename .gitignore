@@ -10,6 +10,8 @@ backend/nutrifit
 runs/
 static/uploads/
 static/cropped_mask/
+static/mask/
+static/crops/
 *.db
 *.log
 *.pt

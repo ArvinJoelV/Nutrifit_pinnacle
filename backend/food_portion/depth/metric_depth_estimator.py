@@ -86,16 +86,20 @@ class MetricDepthEstimator:
         self._init_neural_model()
 
     def _init_neural_model(self):
-        """Attempts to load Depth Anything V2 or MiDaS if installed, otherwise uses geometric depth."""
+        """Attempts to load Depth Anything V2 neural backbone, otherwise uses geometric depth fallback."""
         try:
-            # Check for PyTorch Hub / transformers / local ONNX depth models
+            from transformers import pipeline
             import torch
-            if torch.cuda.is_available():
-                self.device = "cuda"
-            else:
-                self.device = "cpu"
-        except Exception:
-            self.device = "cpu"
+            device = 0 if torch.cuda.is_available() else -1
+            self.neural_model = pipeline(
+                "depth-estimation",
+                model="depth-anything/Depth-Anything-V2-Small-hf",
+                device=device,
+            )
+            logger.info("Loaded Depth-Anything-V2-Small neural backbone successfully on %s.", "cuda" if device == 0 else "cpu")
+        except Exception as exc:
+            logger.warning("Could not initialize Depth-Anything-V2 neural model: %s", exc)
+            self.neural_model = None
 
     def predict_raw_depth(self, image: np.ndarray) -> np.ndarray:
         """Produces a dense (H, W) raw depth/disparity map normalized between 0.0 and 1.0.
@@ -103,14 +107,34 @@ class MetricDepthEstimator:
         """
         h, w = image.shape[:2]
 
-        # Multi-cue edge & perspective gradient (highly robust fallback & foundation prior)
+        # 1. Neural Depth via Depth-Anything-V2-Small
+        if self.neural_model is not None:
+            try:
+                from PIL import Image
+                rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) if len(image.shape) == 3 else cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                pil_img = Image.fromarray(rgb)
+                out = self.neural_model(pil_img)
+                depth_raw = np.array(out["depth"], dtype=np.float32)
+
+                if depth_raw.shape[:2] != (h, w):
+                    depth_raw = cv2.resize(depth_raw, (w, h), interpolation=cv2.INTER_CUBIC)
+
+                # Normalize 0.0 to 1.0 (closer points have higher disparity/depth values)
+                d_min, d_max = float(depth_raw.min()), float(depth_raw.max())
+                if d_max > d_min:
+                    return (depth_raw - d_min) / (d_max - d_min)
+                return np.zeros((h, w), dtype=np.float32)
+            except Exception as exc:
+                logger.warning("Depth-Anything-V2 inference failed, falling back to multi-cue geometric depth: %s", exc)
+
+        # 2. Multi-cue edge & perspective gradient fallback
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         
-        # 1. Bilateral surface smoothing preserving edges
+        # Bilateral surface smoothing preserving edges
         smooth = cv2.bilateralFilter(gray, d=7, sigmaColor=50, sigmaSpace=50).astype(np.float32)
         smooth_norm = cv2.normalize(smooth, None, 0.0, 1.0, cv2.NORM_MINMAX)
 
-        # 2. Multi-scale morphological gradients for 3D food texture height
+        # Multi-scale morphological gradients for 3D food texture height
         kernel_s = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         kernel_l = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
         grad_s = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, kernel_s).astype(np.float32)
@@ -118,7 +142,7 @@ class MetricDepthEstimator:
         grad_combined = 0.6 * grad_s + 0.4 * grad_l
         grad_norm = cv2.normalize(grad_combined, None, 0.0, 1.0, cv2.NORM_MINMAX)
 
-        # 3. Perspective slant gradient (foods typically sit on a table receding in perspective)
+        # Perspective slant gradient (foods typically sit on a table receding in perspective)
         y_coords, _ = np.mgrid[0:h, 0:w].astype(np.float32)
         perspective_slant = 1.0 - (y_coords / float(h))
 

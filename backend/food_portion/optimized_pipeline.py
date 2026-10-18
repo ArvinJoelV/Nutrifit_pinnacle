@@ -282,11 +282,12 @@ class OptimizedFoodPortionPipeline:
         # 5. Occlusion Detection & Reconstruction
         # ---------------------------------------------------------------------
         t0 = time.perf_counter()
-        food_instances = self.occlusion_detector.analyze_scene(
-            food_instances,
-            elevation_map,
-            pixels_per_cm=calibration.pixels_per_cm,
-        )
+        if food_instances:
+            self.occlusion_detector.analyze_scene(
+                food_instances,
+                elevation_map,
+                pixels_per_cm=calibration.pixels_per_cm,
+            )
         t_occl = (time.perf_counter() - t0) * 1000
 
         trace.append({
@@ -295,7 +296,7 @@ class OptimizedFoodPortionPipeline:
             "file": "backend/food_portion/occlusion/occlusion_detector.py",
             "class": "OcclusionDetector",
             "duration_ms": round(t_occl, 1),
-            "output": {"items_evaluated": len(food_instances)},
+            "output": {"items_evaluated": len(food_instances or [])},
         })
 
         # ---------------------------------------------------------------------
@@ -495,6 +496,7 @@ class OptimizedFoodPortionPipeline:
             "items": processed_items,
             "total_mass_g": round(total_mass, 1),
             "total_calories": round(total_calories, 0),
+            "totalCalories": round(total_calories),
             "scale_calibration": {
                 "pixels_per_cm": round(calibration.pixels_per_cm, 2),
                 "cm_per_pixel": round(calibration.cm_per_pixel, 4),
@@ -505,9 +507,12 @@ class OptimizedFoodPortionPipeline:
             "scene_assessment": scene_assessment,
             "gemini_validation": gemini_result,
             "segmented_image": segmented_image_path,
+            "segmentedImage": segmented_image_path,
             "pipeline_trace": trace,
             "pipeline_mode": self.pipeline_mode,
             "pipeline_version": self.pipeline_version,
             "pipeline_total_ms": round(pipeline_total_ms, 1),
+            "pipeline_duration_ms": round(pipeline_total_ms, 1),
+            "execution_target": "Optimized YOLO11-Seg + Depth-Anything-V2 Pipeline",
             "plane_meta": plane_meta,
         }

@@ -38,12 +38,12 @@ class OcclusionDetector:
         instances: List[FoodInstance],
         depth_map: np.ndarray,
         pixels_per_cm: float = 30.0,
-    ):
+    ) -> List[FoodInstance]:
         """Analyzes all pairs of instances, computes occlusion probability, and updates hidden areas."""
-        n = len(instances)
-        if n == 0:
-            return
+        if not instances:
+            return []
 
+        n = len(instances)
         # Ensure visible areas in cm^2 are populated first
         for inst in instances:
             inst.visible_area_cm2 = inst.visible_area_px / (pixels_per_cm ** 2)
@@ -52,7 +52,7 @@ class OcclusionDetector:
             instances[0].occlusion_probability = 0.0
             instances[0].estimated_total_area_px = instances[0].visible_area_px
             instances[0].estimated_total_area_cm2 = instances[0].visible_area_cm2
-            return
+            return instances
 
         # Kernel for morphological boundary dilation
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -159,3 +159,5 @@ class OcclusionDetector:
 
             inst_a.estimated_total_area_px = float(reconstructed_px)
             inst_a.estimated_total_area_cm2 = float(reconstructed_px / (pixels_per_cm ** 2))
+
+        return instances

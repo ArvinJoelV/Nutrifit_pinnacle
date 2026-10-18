@@ -1,6 +1,6 @@
 """Food mass estimation and regression feature extraction."""
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 from ..segmentation.sam_segmenter import FoodInstance
 from ..calibration.scale_estimator import ScaleCalibration
@@ -16,7 +16,7 @@ class MassEstimator:
     def predict(
         self,
         instance: FoodInstance,
-        calibration: ScaleCalibration,
+        calibration: Optional[ScaleCalibration] = None,
     ) -> float:
         """Calculates mass in grams for a segmented food instance."""
         volume_cm3 = instance.volume_cm3 or 0.0
@@ -28,7 +28,18 @@ class MassEstimator:
         mass_g = round(float(np.clip(raw_mass_g, 10.0, 1200.0)), 1)
         instance.mass_g = mass_g
         instance.density_g_cm3 = density
+        instance.mass_range_g = (round(mass_g * 0.85, 1), round(mass_g * 1.15, 1))
         return mass_g
+
+    def estimate(
+        self,
+        instance: FoodInstance,
+        calibration: Optional[ScaleCalibration] = None,
+    ) -> Tuple[float, Tuple[float, float]]:
+        """Calculates mass and uncertainty range in grams for an instance."""
+        mass_g = self.predict(instance, calibration)
+        mass_range = getattr(instance, "mass_range_g", (round(mass_g * 0.85, 1), round(mass_g * 1.15, 1)))
+        return mass_g, mass_range
 
     def extract_feature_vector(
         self,
