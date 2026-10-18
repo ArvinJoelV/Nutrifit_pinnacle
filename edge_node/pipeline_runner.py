@@ -37,41 +37,10 @@ class EdgePipelineRunner:
             return
 
         t0 = time.perf_counter()
-        logger.info("Initializing Edge Food Portion Pipeline on C100...")
-
-        from food_portion.detection.yolo_detector import FoodDetector
-        from food_portion.segmentation.sam_segmenter import FoodSegmenter
-        from food_portion.calibration.scale_estimator import ScaleEstimator
-        from food_portion.depth.depth_estimator import DepthEstimator
-        from food_portion.geometry.volume_estimator import VolumeEstimator
-        from food_portion.occlusion.occlusion_detector import OcclusionDetector
-        from food_portion.nutrition.mass_estimator import MassEstimator
-        from food_portion.uncertainty.confidence import ConfidenceEstimator
-        from food_portion.pipeline import FoodPortionPipeline
-
-        detector = FoodDetector(model_path=self.yolo_model_path)
-        segmenter = FoodSegmenter()
-        scale_estimator = ScaleEstimator()
-        depth_estimator = DepthEstimator()
-        volume_estimator = VolumeEstimator()
-        occlusion_detector = OcclusionDetector()
-        mass_estimator = MassEstimator()
-        confidence_estimator = ConfidenceEstimator()
-
-        self.pipeline = FoodPortionPipeline(
-            detector=detector,
-            segmenter=segmenter,
-            scale_estimator=scale_estimator,
-            depth_estimator=depth_estimator,
-            volume_estimator=volume_estimator,
-            occlusion_detector=occlusion_detector,
-            mass_estimator=mass_estimator,
-            confidence_estimator=confidence_estimator,
-            gemini_validator=None,  # Validation runs on NutriFit cloud backend
-        )
-
+        from food_portion.factory import get_food_portion_pipeline
+        self.pipeline = get_food_portion_pipeline(mode=self.pipeline_mode)
         self._initialized = True
-        logger.info("Edge Pipeline initialized in %.2f ms", (time.perf_counter() - t0) * 1000)
+        logger.info("Edge Pipeline (%s) initialized in %.2f ms", getattr(self.pipeline, "pipeline_mode", "legacy"), (time.perf_counter() - t0) * 1000)
 
     def process_image(self, image_np: np.ndarray, initial_detections: Optional[Any] = None) -> Dict[str, Any]:
         """Execute the 3D physical estimation pipeline on an input image ndarray."""
@@ -81,6 +50,8 @@ class EdgePipelineRunner:
         t_start = time.perf_counter()
         raw_result = self.pipeline.process(image_np, initial_detections=initial_detections)
         duration_ms = round((time.perf_counter() - t_start) * 1000, 1)
+        logger.info("Pipeline execution completed in %.1f ms | Total Mass: %.1f g | Items: %d",
+                    duration_ms, raw_result.get("total_mass_g", 0.0), len(raw_result.get("items", [])))
 
         return {
             "success": True,

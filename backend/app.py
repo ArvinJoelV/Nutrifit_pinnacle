@@ -774,11 +774,11 @@ def _fallback_from_label(label):
     return fallback
 
 
-def _execute_image_analysis_pipeline(image_path, progress_callback=None):
+def _execute_image_analysis_pipeline(image_path, progress_callback=None, pipeline_mode=None):
     """Executes the 9-stage Computer Vision & 3D Reconstruction pipeline with stage broadcasting."""
     # 1. Try Physics-Grounded 3D Food Portion Pipeline
     try:
-        from food_portion.pipeline import FoodPortionPipeline
+        from food_portion.factory import get_food_portion_pipeline
         from food_portion.gemini.validator import GeminiValidator
 
         edge_enabled = os.getenv("EDGE_NODE_ENABLED", "false").lower() in ("true", "1", "yes")
@@ -898,7 +898,10 @@ def _execute_image_analysis_pipeline(image_path, progress_callback=None):
                 app.logger.warning("Edge node execution failed, falling back to local pipeline: %s", edge_exc)
 
         if pipeline_res is None:
-            portion_pipeline = FoodPortionPipeline(gemini_validator=GeminiValidator(model_instance=model))
+            portion_pipeline = get_food_portion_pipeline(
+                mode=pipeline_mode,
+                gemini_validator=GeminiValidator(model_instance=model)
+            )
             pipeline_res = portion_pipeline.process(
                 image_path,
                 gemini_model=model,
@@ -907,7 +910,7 @@ def _execute_image_analysis_pipeline(image_path, progress_callback=None):
 
         p_items = pipeline_res.get("items", [])
         if p_items:
-            app.logger.info("FoodPortionPipeline successfully processed %d items", len(p_items))
+            app.logger.info("FoodPortionPipeline (%s) successfully processed %d items", getattr(portion_pipeline, "pipeline_mode", "standard"), len(p_items))
             # Cache discovered meals in Redis for instant <2ms future retrieval
             for p in p_items:
                 f_name = p.get("name") or p.get("food")
@@ -931,7 +934,9 @@ def _execute_image_analysis_pipeline(image_path, progress_callback=None):
                 "segmentedImage": pipeline_res.get("segmentedImage") or pipeline_res.get("segmented_image"),
                 "originalImage": image_path.replace("\\", "/"),
                 "pipeline_trace": pipeline_res.get("pipeline_trace", []),
-                "pipeline_duration_ms": pipeline_res.get("pipeline_duration_ms") or pipeline_res.get("duration_ms", 0.0),
+                "pipeline_duration_ms": pipeline_res.get("pipeline_duration_ms") or pipeline_res.get("pipeline_total_ms") or pipeline_res.get("duration_ms", 0.0),
+                "pipeline_mode": pipeline_res.get("pipeline_mode", getattr(portion_pipeline, "pipeline_mode", "legacy")),
+                "pipeline_version": pipeline_res.get("pipeline_version", getattr(portion_pipeline, "pipeline_version", "1.0-legacy")),
                 "execution_target": pipeline_res.get("execution_target", "Local Pipeline"),
             }
     except Exception as exc:
@@ -1049,11 +1054,19 @@ def analyze_meal_async():
     image_path = os.path.join(app.config["UPLOAD_FOLDER"], unique_filename)
     image_file.save(image_path)
 
+    pipeline_mode = (
+        request.args.get("pipeline")
+        or request.args.get("pipeline_mode")
+        or request.headers.get("X-Pipeline-Mode")
+        or (request.form.get("pipeline_mode") if request.form else None)
+    )
+
     # Dispatch to Kafka/Async Queue in <50ms
     job_id = cv_job_queue.submit_job(
         image_path=image_path,
         gemini_model=model,
         processor_fn=_execute_image_analysis_pipeline,
+        pipeline_mode=pipeline_mode,
     )
 
     return jsonify({
@@ -1061,6 +1074,7 @@ def analyze_meal_async():
         "job_id": job_id,
         "status": "queued",
         "broker": "Apache Kafka (meal.cv.jobs)" if cv_job_queue.is_kafka_connected else "NutriFit Async Queue",
+        "pipeline_mode": pipeline_mode or "optimized",
         "stream_url": f"/api/jobs/{job_id}/events",
         "status_url": f"/api/jobs/{job_id}",
     }), 202
@@ -1070,7 +1084,7 @@ def analyze_meal_async():
 def analyze_meal():
     """Dual-mode image analysis endpoint:
     - If ?async=true or X-Async-Processing: true -> dispatches in <50ms
-    - Otherwise -> executes pipeline synchronously
+    - Otherwise -> executes pipeline synchronously with optional ?pipeline=legacy|optimized
     """
     is_async_requested = (
         request.args.get("async", "").lower() in ("true", "1", "yes")
@@ -1091,11 +1105,111 @@ def analyze_meal():
     image_path = os.path.join(app.config["UPLOAD_FOLDER"], unique_filename)
     image_file.save(image_path)
 
+    pipeline_mode = (
+        request.args.get("pipeline")
+        or request.args.get("pipeline_mode")
+        or request.headers.get("X-Pipeline-Mode")
+        or (request.form.get("pipeline_mode") if request.form else None)
+    )
+
     try:
-        res = _execute_image_analysis_pipeline(image_path)
+        res = _execute_image_analysis_pipeline(image_path, pipeline_mode=pipeline_mode)
         return jsonify(res)
     except Exception as exc:
         app.logger.exception("Synchronous analyze_meal execution error: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/pipeline/config", methods=["GET", "POST"])
+def pipeline_config():
+    """Inspects or switches the active food portion pipeline mode ('legacy' vs 'optimized')."""
+    from food_portion.factory import get_active_pipeline_mode, set_active_pipeline_mode
+    if request.method == "POST":
+        data = request.get_json(silent=True) or request.form or {}
+        new_mode = data.get("mode") or data.get("pipeline_mode")
+        if not new_mode:
+            return jsonify({"error": "Missing 'mode' parameter. Choose 'legacy' or 'optimized'."}), 400
+        try:
+            active = set_active_pipeline_mode(new_mode)
+            return jsonify({"ok": True, "active_mode": active, "message": f"Pipeline mode switched to '{active}'"})
+        except ValueError as err:
+            return jsonify({"error": str(err)}), 400
+
+    return jsonify({
+        "ok": True,
+        "active_mode": get_active_pipeline_mode(),
+        "supported_modes": [
+            {
+                "id": "legacy",
+                "name": "Legacy Pipeline (V1)",
+                "description": "Standard YOLOv8 + SAM2 sequential masking + heuristic depth morphology.",
+            },
+            {
+                "id": "optimized",
+                "name": "Optimized High-Recall & Metric Depth (V2)",
+                "description": "HighRecallFoodDetector + Soft-NMS + SAHI container slicing + RANSAC 3D plane fitting + parallel concurrency.",
+            },
+        ],
+    })
+
+
+@app.route("/api/pipeline/compare", methods=["POST"])
+def pipeline_compare():
+    """Runs BOTH Legacy and Optimized pipelines side-by-side on an image to benchmark accuracy & speed."""
+    if "image" not in request.files or request.files["image"].filename == "":
+        return jsonify({"error": "No image uploaded"}), 400
+
+    image_file = request.files["image"]
+    ext = os.path.splitext(image_file.filename)[1] or ".jpg"
+    unique_filename = f"cmp_{uuid.uuid4().hex}{ext}"
+    image_path = os.path.join(app.config["UPLOAD_FOLDER"], unique_filename)
+    image_file.save(image_path)
+
+    try:
+        # Run Legacy Pipeline
+        t0 = time.perf_counter()
+        res_legacy = _execute_image_analysis_pipeline(image_path, pipeline_mode="legacy")
+        legacy_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+        # Run Optimized Pipeline
+        t0 = time.perf_counter()
+        res_opt = _execute_image_analysis_pipeline(image_path, pipeline_mode="optimized")
+        opt_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+        legacy_items = [it.get("name") or it.get("food") for it in res_legacy.get("items", [])]
+        opt_items = [it.get("name") or it.get("food") for it in res_opt.get("items", [])]
+
+        return jsonify({
+            "ok": True,
+            "comparison": {
+                "legacy": {
+                    "pipeline_mode": "legacy",
+                    "execution_time_ms": legacy_ms,
+                    "detected_items_count": len(legacy_items),
+                    "items": legacy_items,
+                    "total_calories": res_legacy.get("totalCalories", 0),
+                    "total_mass_g": res_legacy.get("total_mass_g", 0),
+                    "depth_method": "Heuristic 2D Morphological Proxy",
+                },
+                "optimized": {
+                    "pipeline_mode": "optimized",
+                    "execution_time_ms": opt_ms,
+                    "detected_items_count": len(opt_items),
+                    "items": opt_items,
+                    "total_calories": res_opt.get("totalCalories", 0),
+                    "total_mass_g": res_opt.get("total_mass_g", 0),
+                    "depth_method": "RANSAC 3D Plane Fitting + Metric Elevation",
+                    "plane_fitted": res_opt.get("plane_meta", {}).get("plane_fitted", False),
+                },
+                "summary": {
+                    "speedup_ratio": round(legacy_ms / max(opt_ms, 1.0), 2),
+                    "additional_items_detected": [it for it in opt_items if it not in legacy_items],
+                    "caloric_delta": res_opt.get("totalCalories", 0) - res_legacy.get("totalCalories", 0),
+                },
+            },
+        })
+    except Exception as exc:
+        app.logger.exception("Pipeline comparison error: %s", exc)
         return jsonify({"error": str(exc)}), 500
 
 

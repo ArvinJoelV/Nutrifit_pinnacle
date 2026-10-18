@@ -81,17 +81,21 @@ class AsyncJobQueue:
         gemini_model: Optional[Any] = None,
         context: Optional[Dict[str, Any]] = None,
         processor_fn: Optional[Callable] = None,
+        pipeline_mode: Optional[str] = None,
     ) -> str:
         """Enqueues image analysis job and returns job_id in <50ms."""
         t_start = time.perf_counter()
         job_id = f"cv-job-{uuid.uuid4().hex[:12]}"
         now = time.time()
+        job_context = dict(context or {})
+        if pipeline_mode:
+            job_context["pipeline_mode"] = pipeline_mode
 
         job_data = {
             "id": job_id,
             "status": "queued",
             "image_path": image_path,
-            "context": context or {},
+            "context": job_context,
             "created_at": now,
             "updated_at": now,
             "current_stage": 0,
@@ -163,6 +167,7 @@ class AsyncJobQueue:
             image_path = task["image_path"]
             gemini_model = task.get("gemini_model")
             processor_fn = task.get("processor_fn")
+            context = task.get("context") or {}
 
             logger.info("Worker starting CV processing for job %s...", job_id)
             with self._lock:
@@ -193,13 +198,20 @@ class AsyncJobQueue:
                     )
 
                 # Execute analysis processor
+                pipeline_mode = context.get("pipeline_mode")
                 if processor_fn:
-                    result = processor_fn(image_path, progress_callback=on_pipeline_stage)
+                    try:
+                        result = processor_fn(image_path, progress_callback=on_pipeline_stage, pipeline_mode=pipeline_mode)
+                    except TypeError:
+                        result = processor_fn(image_path, progress_callback=on_pipeline_stage)
                 else:
-                    # Default pipeline invocation
-                    from food_portion.pipeline import FoodPortionPipeline
+                    # Default pipeline invocation via Pipeline Factory
+                    from food_portion.factory import get_food_portion_pipeline
                     from food_portion.gemini.validator import GeminiValidator
-                    pipeline = FoodPortionPipeline(gemini_validator=GeminiValidator(model_instance=gemini_model))
+                    pipeline = get_food_portion_pipeline(
+                        mode=pipeline_mode,
+                        gemini_validator=GeminiValidator(model_instance=gemini_model)
+                    )
                     result = pipeline.process(
                         image_path,
                         gemini_model=gemini_model,

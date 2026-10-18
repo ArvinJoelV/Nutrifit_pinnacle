@@ -90,17 +90,19 @@ class MealAnalysisTool(BaseTool):
                     logger.info("Executing 3D portion pipeline on RS PRO C100 Edge Node...")
                     pipeline_res = edge_prov.process_portion(image_path)
                 else:
-                    logger.info("Edge node offline, running local FoodPortionPipeline...")
-                    from food_portion.pipeline import FoodPortionPipeline
+                    logger.info("Edge node offline, running local FoodPortionPipeline via Factory...")
+                    from food_portion.factory import get_food_portion_pipeline
                     from food_portion.gemini.validator import GeminiValidator
+                    pipeline_mode = kwargs.get("pipeline_mode")
                     if self.pipeline is None:
-                        self.pipeline = FoodPortionPipeline(gemini_validator=GeminiValidator(model_instance=model))
+                        self.pipeline = get_food_portion_pipeline(mode=pipeline_mode, gemini_validator=GeminiValidator(model_instance=model))
                     pipeline_res = self.pipeline.process(image_path, gemini_model=model)
             else:
-                from food_portion.pipeline import FoodPortionPipeline
+                from food_portion.factory import get_food_portion_pipeline
                 from food_portion.gemini.validator import GeminiValidator
+                pipeline_mode = kwargs.get("pipeline_mode")
                 if self.pipeline is None:
-                    self.pipeline = FoodPortionPipeline(gemini_validator=GeminiValidator(model_instance=model))
+                    self.pipeline = get_food_portion_pipeline(mode=pipeline_mode, gemini_validator=GeminiValidator(model_instance=model))
                 pipeline_res = self.pipeline.process(image_path, gemini_model=model)
 
             items = pipeline_res.get("items", [])

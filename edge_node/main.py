@@ -5,6 +5,8 @@ Exposes endpoints for hardware telemetry, 3D portion estimation, and detection.
 """
 
 import io
+import os
+import sys
 import time
 import logging
 import cv2
@@ -24,10 +26,20 @@ except ImportError:
     from .hardware_monitor import get_hardware_stats
     from .pipeline_runner import EdgePipelineRunner
 
-logging.basicConfig(
-    level=getattr(logging, config.LOG_LEVEL, logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uvicorn.log")
+file_handler = logging.FileHandler(log_file_path, mode="a", encoding="utf-8")
+stream_handler = logging.StreamHandler(sys.stdout)
+
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+file_handler.setFormatter(formatter)
+stream_handler.setFormatter(formatter)
+
+root_logger = logging.getLogger()
+root_logger.setLevel(getattr(logging, config.LOG_LEVEL, logging.INFO))
+root_logger.addHandler(file_handler)
+if not root_logger.handlers:
+    root_logger.addHandler(stream_handler)
+
 logger = logging.getLogger("edge_node")
 
 app = FastAPI(
@@ -114,7 +126,23 @@ async def process_portion(
                 logger.warning("Could not parse detections form parameter: %s", e)
 
         # Run pipeline
+        logger.info(">>> [Portion Request] Processing image '%s' (%dx%d px, size: %.1f KB)",
+                    file.filename or "unknown", w, h, len(contents) / 1024.0)
+
         result = runner.process_image(image, initial_detections=initial_dets)
+
+        items = result.get("items", [])
+        total_mass = result.get("total_mass_g", 0.0)
+        dur = result.get("duration_ms", 0.0)
+        scale_val = result.get("scale_calibration", {}).get("pixels_per_cm", "N/A")
+        items_detail = "; ".join([
+            f"{it.get('name', 'Food')}: {it.get('mass_g', 0):.1f}g (vol: {it.get('estimated_volume_cm3', it.get('volume_cm3', 0)):.1f}cm³, conf: {it.get('confidence', 0):.2f})"
+            for it in items
+        ]) or "No items detected"
+
+        logger.info("<<< [Portion Success] Duration: %.1f ms | Total Mass: %.1f g | Scale: %s px/cm | Items (%d): [%s]",
+                    dur, total_mass, scale_val, len(items), items_detail)
+
         return JSONResponse(content=result)
 
     except HTTPException:
