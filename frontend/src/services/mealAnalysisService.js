@@ -240,6 +240,25 @@ export const analyzeMealImageStream = async (file, { onStageProgress, signal, pi
         eventSource.addEventListener('completed', (evt) => {
             try {
                 const data = JSON.parse(evt.data);
+
+                // Guard: Ensure this is genuinely the terminal completed payload with results
+                const hasResult = Boolean(data.result && (data.result.items || data.result.totalCalories != null));
+                const isExplicitFinal = Boolean(data.is_final && (data.result || data.items));
+
+                if (!hasResult && !isExplicitFinal && !data.items) {
+                    // This is an intermediate stage milestone, not the terminal completed payload!
+                    if (onStageProgress && data.stage) {
+                        onStageProgress({
+                            stage: data.stage,
+                            name: data.name,
+                            duration_ms: data.duration_ms,
+                            broker: data.broker,
+                            details: data.details,
+                        });
+                    }
+                    return;
+                }
+
                 cleanup();
                 if (!isSettled) {
                     isSettled = true;

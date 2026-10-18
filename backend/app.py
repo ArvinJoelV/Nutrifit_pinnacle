@@ -1033,6 +1033,10 @@ If uncertain, estimate realistically and still return numeric macro values.
         "segmentedImage": segmented_path,
         "originalImage": image_path.replace("\\", "/"),
         "execution_target": "Legacy Segmentation Fallback",
+        "pipeline_mode": "legacy",
+        "pipeline_version": "1.0-legacy",
+        "pipeline_duration_ms": 0.0,
+        "pipeline_trace": [],
     }
 
 

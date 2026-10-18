@@ -23,26 +23,46 @@ class Detection:
     is_container: bool = False
 
 
+def _is_lfs_pointer(path: Optional[str]) -> bool:
+    if not path or not os.path.exists(path):
+        return True
+    try:
+        with open(path, "rb") as f:
+            header = f.read(20)
+            return header.startswith(b"version https://")
+    except Exception:
+        return True
+
+
 class FoodDetector:
     """Detects food items and containers from an image using YOLO."""
 
     def __init__(self, model_path: Optional[str] = None):
         if not model_path:
-            model_path = "models/food_detection_yolov8_model1.pt"
-            if not os.path.exists(model_path):
-                model_path = "models/food_detection_yolov8_model.pt"
-            if not os.path.exists(model_path):
-                alt_path = os.path.join(os.path.dirname(__file__), "..", "..", "models", "food_detection_yolov8_model.pt")
-                if os.path.exists(alt_path):
-                    model_path = alt_path
+            candidates = [
+                "models/food_detection_yolov8_model.pt",
+                "models/food_detection_yolov8_model1.pt",
+                os.path.join(os.path.dirname(__file__), "..", "..", "models", "food_detection_yolov8_model.pt"),
+                os.path.join(os.path.dirname(__file__), "..", "..", "models", "food_detection_yolov8_model1.pt"),
+            ]
+            for cand in candidates:
+                if os.path.exists(cand) and not _is_lfs_pointer(cand):
+                    model_path = cand
+                    break
 
         self.model_path = model_path
         self.model = None
-        if YOLO is not None and model_path and os.path.exists(model_path):
-            try:
-                self.model = YOLO(model_path)
-            except Exception:
-                self.model = None
+        if YOLO is not None:
+            if model_path and os.path.exists(model_path) and not _is_lfs_pointer(model_path):
+                try:
+                    self.model = YOLO(model_path)
+                except Exception:
+                    self.model = None
+            if self.model is None:
+                try:
+                    self.model = YOLO("yolov8n.pt")
+                except Exception:
+                    self.model = None
 
         # Standard COCO container detector for bowls, cups, plates
         container_candidates = [

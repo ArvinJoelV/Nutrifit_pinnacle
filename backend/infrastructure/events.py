@@ -144,7 +144,7 @@ class EventBroadcaster:
                     event = q.get(timeout=2.0)
                     data_json = json.dumps(event)
                     event_type = "stage"
-                    if event.get("status") == "completed" or event.get("stage") == 9:
+                    if event.get("is_final", False) or (event.get("status") == "completed" and "result" in event):
                         event_type = "completed"
                     elif event.get("status") == "failed":
                         event_type = "error"

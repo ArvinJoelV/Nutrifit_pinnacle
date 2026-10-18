@@ -31,6 +31,9 @@ class PortionPipelineResult:
 class FoodPortionPipeline:
     """End-to-end 3D Food Portion and Mass Estimation Pipeline with full debug tracing."""
 
+    pipeline_mode: str = "legacy"
+    pipeline_version: str = "1.0-legacy"
+
     def __init__(
         self,
         detector: Optional[FoodDetector] = None,
@@ -646,4 +649,7 @@ class FoodPortionPipeline:
             "segmentedImage": segmented_image,
             "pipeline_trace": trace,
             "pipeline_duration_ms": round(total_pipeline_time, 1),
+            "pipeline_mode": "legacy",
+            "pipeline_version": "1.0-legacy",
+            "execution_target": "Legacy YOLO+SAM2 Pipeline",
         }
