@@ -104,8 +104,8 @@ class HighRecallFoodDetector(FoodDetector):
 
     def __init__(self, model_path: Optional[str] = None):
         super().__init__(model_path=model_path)
-        self.conf_threshold_primary = 0.18
-        self.conf_threshold_slicing = 0.08
+        self.conf_threshold_primary = 0.15
+        self.conf_threshold_slicing = 0.05
 
     def predict(self, image_path_or_array: Any) -> List[Detection]:
         """Detects food items with high recall, capturing small side items and overlapping layers."""
@@ -188,21 +188,20 @@ class HighRecallFoodDetector(FoodDetector):
         refined_detections = soft_nms(
             all_detections,
             sigma=0.5,
-            score_threshold=0.10,
+            score_threshold=0.05,
             preserve_distinct_classes=True,
         )
 
         # 6. Container Spatial Exclusivity (Bowl / Katori Constraint)
-        # Small dish containers (bowls, cups, katoris) in thalis hold exactly ONE dish each.
-        # Suppress competing candidate food detections inside the same bowl.
+        # Small portion bowls (katoris) in thalis hold exactly ONE dish each.
+        # Main dining plates / platters (>= 48% of image) hold multiple food items (e.g. rice + chicken curry).
         containers_kept = [d for d in refined_detections if d.is_container]
         foods_kept = [d for d in refined_detections if not d.is_container]
 
-        # Identify sub-bowls (distinguish small portion bowls from the main platter plate)
+        # Identify small sub-bowls (distinguish small portion cups/katoris from the main platter plate)
         sub_bowls = [
             c for c in containers_kept
-            if any(k in c.class_name.lower() for k in ["bowl", "cup", "katori"])
-            or ((c.bbox[2] - c.bbox[0]) < 0.65 * w and (c.bbox[3] - c.bbox[1]) < 0.65 * h)
+            if (c.bbox[2] - c.bbox[0]) < 0.48 * w and (c.bbox[3] - c.bbox[1]) < 0.48 * h
         ]
 
         if sub_bowls and foods_kept:
