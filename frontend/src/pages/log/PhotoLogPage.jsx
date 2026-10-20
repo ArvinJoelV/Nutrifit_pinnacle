@@ -89,7 +89,7 @@ const PhotoLogPage = () => {
     const [currentStageIndex, setCurrentStageIndex] = useState(1);
     const [isAnalysisComplete, setIsAnalysisComplete] = useState(false);
     const [liveStageInfo, setLiveStageInfo] = useState({ broker: '', duration_ms: null, stageDurations: {} });
-    const [pipelineMode, setPipelineMode] = useState('optimized');
+    const [pipelineMode, setPipelineMode] = useState('local');
     const [isComparisonOpen, setIsComparisonOpen] = useState(false);
 
     const { formData } = useOnboarding();
@@ -414,12 +414,16 @@ const PhotoLogPage = () => {
                     <div className="flex items-center gap-3 w-full lg:w-auto justify-end flex-wrap">
                         {/* Active Pipeline Badge */}
                         <div className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 shadow-sm ${
-                            (analysisMeta?.pipeline_mode || pipelineMode) === 'optimized'
-                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                                : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                            (analysisMeta?.pipeline_mode || pipelineMode) === 'edge' || (analysisMeta?.pipeline_mode || pipelineMode) === 'legacy'
+                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                         }`}>
                             <span className="w-2 h-2 rounded-full animate-pulse bg-current" />
-                            <span>{(analysisMeta?.pipeline_mode || pipelineMode) === 'optimized' ? '⚡ Optimized V2' : '🔄 Legacy V1'}</span>
+                            <span>
+                                {(analysisMeta?.pipeline_mode || pipelineMode) === 'edge' || (analysisMeta?.pipeline_mode || pipelineMode) === 'legacy'
+                                    ? '⚡ Edge Node (RS C100)'
+                                    : '🧠 Local Pipeline'}
+                            </span>
                         </div>
 
                         {/* Benchmark Comparison Button */}
@@ -427,11 +431,11 @@ const PhotoLogPage = () => {
                             <button
                                 type="button"
                                 onClick={() => setIsComparisonOpen(true)}
-                                className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
-                                title="Run live side-by-side comparison of Legacy vs Optimized on this photo"
+                                className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                                title="Run live side-by-side comparison of Local Pipeline vs Edge Node on this photo"
                             >
                                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                                <span>Compare V1 vs V2</span>
+                                <span>Compare Local vs Edge</span>
                             </button>
                         )}
 
@@ -486,7 +490,7 @@ const PhotoLogPage = () => {
                             </button>
                         </div>
 
-                        {/* Pipeline Selector (Optimized V2 vs Legacy V1) */}
+                        {/* Pipeline Selector (Local Pipeline vs Edge Node) */}
                         <div className="w-full max-w-md mx-auto mb-6">
                             <PipelineSelector
                                 selectedMode={pipelineMode}

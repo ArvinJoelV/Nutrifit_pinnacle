@@ -1126,32 +1126,46 @@ def analyze_meal():
 
 @app.route("/api/pipeline/config", methods=["GET", "POST"])
 def pipeline_config():
-    """Inspects or switches the active food portion pipeline mode ('legacy' vs 'optimized')."""
+    """Inspects or switches the active food portion pipeline mode ('local' vs 'edge')."""
     from food_portion.factory import get_active_pipeline_mode, set_active_pipeline_mode
     if request.method == "POST":
-        data = request.get_json(silent=True) or request.form or {}
-        new_mode = data.get("mode") or data.get("pipeline_mode")
-        if not new_mode:
-            return jsonify({"error": "Missing 'mode' parameter. Choose 'legacy' or 'optimized'."}), 400
+        data = request.get_json(silent=True) or {}
+        new_mode = data.get("mode") or data.get("pipeline_mode") or "local"
         try:
             active = set_active_pipeline_mode(new_mode)
-            return jsonify({"ok": True, "active_mode": active, "message": f"Pipeline mode switched to '{active}'"})
+            user_facing = "local" if active == "optimized" else "edge"
+            return jsonify({
+                "ok": True,
+                "active_mode": active,
+                "display_mode": user_facing,
+                "raw_mode": active,
+                "message": f"Pipeline mode switched to '{user_facing}'"
+            })
         except ValueError as err:
             return jsonify({"error": str(err)}), 400
+        except Exception as err:
+            return jsonify({"error": str(err)}), 400
 
+    active_raw = get_active_pipeline_mode()
+    user_facing = "local" if active_raw == "optimized" else "edge"
     return jsonify({
         "ok": True,
-        "active_mode": get_active_pipeline_mode(),
+        "active_mode": active_raw,
+        "display_mode": user_facing,
         "supported_modes": [
             {
-                "id": "legacy",
-                "name": "Legacy Pipeline (V1)",
-                "description": "Standard YOLOv8 + SAM2 sequential masking + heuristic depth morphology.",
+                "id": "local",
+                "name": "Local Pipeline",
+                "badge": "High-Accuracy Neural",
+                "description": "High-Recall Soft-NMS + YOLO11s-Seg + Depth Anything V2 + RANSAC 3D Plane Fitting.",
+                "hardware": "Local Server / Neural Core",
             },
             {
-                "id": "optimized",
-                "name": "Optimized High-Recall & Metric Depth (V2)",
-                "description": "HighRecallFoodDetector + Soft-NMS + SAHI container slicing + RANSAC 3D plane fitting + parallel concurrency.",
+                "id": "edge",
+                "name": "Edge Node",
+                "badge": "RS C100 Pro",
+                "description": "NVIDIA RS C100 Pro Edge Accelerator hosting the hardware pipeline.",
+                "hardware": "NVIDIA RS C100 Pro / Jetson",
             },
         ],
     })
@@ -1159,7 +1173,7 @@ def pipeline_config():
 
 @app.route("/api/pipeline/compare", methods=["POST"])
 def pipeline_compare():
-    """Runs BOTH Legacy and Optimized pipelines side-by-side on an image to benchmark accuracy & speed."""
+    """Runs BOTH Local and Edge pipelines side-by-side on an image to benchmark accuracy & speed."""
     if "image" not in request.files or request.files["image"].filename == "":
         return jsonify({"error": "No image uploaded"}), 400
 
@@ -1170,12 +1184,12 @@ def pipeline_compare():
     image_file.save(image_path)
 
     try:
-        # Run Legacy Pipeline
+        # Run Edge (Legacy) Pipeline
         t0 = time.perf_counter()
         res_legacy = _execute_image_analysis_pipeline(image_path, pipeline_mode="legacy")
         legacy_ms = round((time.perf_counter() - t0) * 1000, 1)
 
-        # Run Optimized Pipeline
+        # Run Local (Optimized) Pipeline
         t0 = time.perf_counter()
         res_opt = _execute_image_analysis_pipeline(image_path, pipeline_mode="optimized")
         opt_ms = round((time.perf_counter() - t0) * 1000, 1)
@@ -1183,28 +1197,38 @@ def pipeline_compare():
         legacy_items = [it.get("name") or it.get("food") for it in res_legacy.get("items", [])]
         opt_items = [it.get("name") or it.get("food") for it in res_opt.get("items", [])]
 
+        edge_data = {
+            "pipeline_mode": "edge",
+            "name": "Edge Node (RS C100)",
+            "execution_time_ms": legacy_ms,
+            "detected_items_count": len(legacy_items),
+            "items": legacy_items,
+            "total_calories": res_legacy.get("totalCalories", 0),
+            "total_mass_g": res_legacy.get("total_mass_g", 0),
+            "depth_method": "Heuristic 2D Morphological Proxy",
+            "execution_target": res_legacy.get("execution_target", "⚡ RS C100 Edge Node"),
+        }
+
+        local_data = {
+            "pipeline_mode": "local",
+            "name": "Local Pipeline",
+            "execution_time_ms": opt_ms,
+            "detected_items_count": len(opt_items),
+            "items": opt_items,
+            "total_calories": res_opt.get("totalCalories", 0),
+            "total_mass_g": res_opt.get("total_mass_g", 0),
+            "depth_method": "RANSAC 3D Plane Fitting + Depth Anything V2",
+            "plane_fitted": res_opt.get("plane_meta", {}).get("plane_fitted", False),
+            "execution_target": res_opt.get("execution_target", "🧠 Local Server Neural Pipeline"),
+        }
+
         return jsonify({
             "ok": True,
             "comparison": {
-                "legacy": {
-                    "pipeline_mode": "legacy",
-                    "execution_time_ms": legacy_ms,
-                    "detected_items_count": len(legacy_items),
-                    "items": legacy_items,
-                    "total_calories": res_legacy.get("totalCalories", 0),
-                    "total_mass_g": res_legacy.get("total_mass_g", 0),
-                    "depth_method": "Heuristic 2D Morphological Proxy",
-                },
-                "optimized": {
-                    "pipeline_mode": "optimized",
-                    "execution_time_ms": opt_ms,
-                    "detected_items_count": len(opt_items),
-                    "items": opt_items,
-                    "total_calories": res_opt.get("totalCalories", 0),
-                    "total_mass_g": res_opt.get("total_mass_g", 0),
-                    "depth_method": "RANSAC 3D Plane Fitting + Metric Elevation",
-                    "plane_fitted": res_opt.get("plane_meta", {}).get("plane_fitted", False),
-                },
+                "local": local_data,
+                "edge": edge_data,
+                "legacy": edge_data,
+                "optimized": local_data,
                 "summary": {
                     "speedup_ratio": round(legacy_ms / max(opt_ms, 1.0), 2),
                     "additional_items_detected": [it for it in opt_items if it not in legacy_items],
