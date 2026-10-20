@@ -116,31 +116,33 @@ class GeminiValidator:
             for m in measurements
         ]
 
-        prompt = f"""You are an expert clinical dietitian validator.
-CV detected items and measured physical mass (scale: {round(px_per_cm, 1)} px/cm, plate: {plate_det}):
+        prompt = f"""You are an expert clinical dietitian validator for Indian cuisine.
+Review this dining photo. Computer vision detected {len(concise_measurements)} items:
 {json.dumps(concise_measurements)}
 
-Tasks:
-1. IDENTIFY AUTHENTIC INDIAN DISHES:
-   Examine image and correct names (e.g. red gravy on Indian thali = Paneer or Dal or Sabzi, NEVER chicken unless bones/shreds visible; flatbread = Roti or Paratha; yellow lentil = Yellow Dal; condiment = Mango Pickle; papad = Roasted Papad; rice = Plain Rice).
-2. Match each detected item by its integer "id" (0 to {len(instances) - 1}).
-3. Adjust mass_g if needed to realistic serving, and calculate calories, protein, carbs, fat, fiber.
+Crucial Indian dining rules:
+- Top / side bowls with yellow gravy = Yellow Dal / Tadka Dal / Sambar (NEVER sandwich!).
+- Red / brown curries in bowls = Paneer Sabzi, Dal Makhani, or Mixed Vegetable Curry (NEVER chicken on vegetarian thalis).
+- Center bowl = Plain Steamed Rice.
+- Small sauce / condiment saucer = Mango Pickle / Chutney.
+- Crispy thin wafer / quarter circle = Roasted Papad (NEVER chapathi).
+- Triangle-folded or layered flatbreads = Paratha / Roti.
 
-Output ONLY a JSON object:
+Return a JSON object:
 {{
   "valid": true,
   "items": [
     {{
       "id": 0,
       "food": "Authentic Dish Name",
-      "mass_g": 120,
-      "mass_range_g": [100, 140],
-      "calories": 160,
+      "mass_g": 100,
+      "mass_range_g": [80, 120],
+      "calories": 140,
       "protein": 5,
-      "carbs": 24,
-      "fat": 5,
+      "carbs": 22,
+      "fat": 4,
       "fiber": 2,
-      "confidence": 0.85
+      "confidence": 0.92
     }}
   ]
 }}"""
@@ -168,16 +170,19 @@ Output ONLY a JSON object:
                     loaded_img = Image.open(resolved_img_path)
                     if loaded_img.mode != "RGB":
                         loaded_img = loaded_img.convert("RGB")
-                    # Downscale to max 512px for high-speed transmission and rapid vision tokenization
-                    loaded_img.thumbnail((512, 512), Image.Resampling.BILINEAR)
+                    # Downscale to max 384px for ultra-rapid vision tokenization and low latency
+                    loaded_img.thumbnail((384, 384), Image.Resampling.BILINEAR)
                     img = loaded_img
                 except Exception as img_err:
                     logger.debug("Failed to load/downscale image for Gemini: %s", img_err)
 
             inputs = [prompt, img] if img else [prompt]
-            # Extended 15-second timeout allows sufficient time for Gemini reasoning
-            timeout_sec = float(os.getenv("GEMINI_TIMEOUT_SECONDS", str(self.timeout)))
-            response = self.model.generate_content(inputs, request_options={"timeout": timeout_sec})
+            timeout_sec = float(os.getenv("GEMINI_TIMEOUT_SECONDS", str(self.timeout or 20.0)))
+            response = self.model.generate_content(
+                inputs,
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1},
+                request_options={"timeout": max(timeout_sec, 20.0)},
+            )
             data = _clean_json(response.text)
             if data and "items" in data and isinstance(data["items"], list):
                 for it in data["items"]:
