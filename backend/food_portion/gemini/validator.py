@@ -10,28 +10,39 @@ from ..calibration.scale_estimator import ScaleCalibration
 logger = logging.getLogger(__name__)
 
 
-def _clean_json(text: str) -> Dict[str, Any]:
+def _clean_json(text: str) -> Any:
     cleaned = re.sub(r"```json|```", "", text or "").strip()
     if not cleaned:
         return {}
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidate = cleaned[start : end + 1]
-        try:
-            return json.loads(candidate)
-        except Exception:
-            pass
     try:
         return json.loads(cleaned)
     except Exception:
-        return {}
+        pass
+
+    s_brace = cleaned.find("{")
+    e_brace = cleaned.rfind("}")
+    s_bracket = cleaned.find("[")
+    e_bracket = cleaned.rfind("]")
+
+    if s_brace != -1 and e_brace != -1 and (s_bracket == -1 or s_brace < s_bracket):
+        try:
+            return json.loads(cleaned[s_brace : e_brace + 1])
+        except Exception:
+            pass
+
+    if s_bracket != -1 and e_bracket != -1:
+        try:
+            return json.loads(cleaned[s_bracket : e_bracket + 1])
+        except Exception:
+            pass
+
+    return {}
 
 
 class GeminiValidator:
     """Validates CV measurements and provides semantic nutrition reasoning using Gemini."""
 
-    def __init__(self, model_instance=None, timeout: Optional[float] = None):
+    def __init__(self, model_instance=None, timeout: float = 40.0):
         self.model = model_instance
         self.timeout = timeout
 
@@ -120,29 +131,26 @@ class GeminiValidator:
 Review this dining photo. Computer vision detected {len(concise_measurements)} items:
 {json.dumps(concise_measurements)}
 
-Crucial Indian dining rules:
-- Top / side bowls with yellow gravy = Yellow Dal / Tadka Dal / Sambar (NEVER sandwich!).
-- Red / brown curries in bowls = Paneer Sabzi, Dal Makhani, or Mixed Vegetable Curry (NEVER chicken on vegetarian thalis).
-- Center bowl = Plain Steamed Rice.
-- Small sauce / condiment saucer = Mango Pickle / Chutney.
-- Crispy thin wafer / quarter circle = Roasted Papad (NEVER chapathi).
-- Triangle-folded or layered flatbreads = Paratha / Roti.
+CRITICAL TASKS:
+1. Examine the image carefully. Correct any misclassified dish names (e.g. yellow gravy = Yellow Dal / Tadka Dal, NEVER sandwich; crispy flat wafer = Roasted Papad, NEVER chapathi; red gravy on vegetarian thalis = Paneer/Sabzi, NEVER chicken).
+2. DISCOVER MISSED DISHES: Look at the entire plate/table. If there are distinct food items that computer vision missed (such as Chicken Curry, Mutton, Fish, Paneer, Dal, Sabzi, Papad, Curd), YOU MUST ADD THEM to the 'items' list with realistic estimated mass_g!
+3. For every item, provide realistic clinical mass_g, calories, protein, carbs, fat, fiber.
 
-Return a JSON object:
+Return ONLY a JSON object:
 {{
   "valid": true,
   "items": [
     {{
       "id": 0,
-      "food": "Authentic Dish Name",
-      "mass_g": 100,
-      "mass_range_g": [80, 120],
-      "calories": 140,
-      "protein": 5,
-      "carbs": 22,
-      "fat": 4,
-      "fiber": 2,
-      "confidence": 0.92
+      "food": "Dish Name",
+      "mass_g": 150,
+      "mass_range_g": [120, 180],
+      "calories": 195,
+      "protein": 4,
+      "carbs": 42,
+      "fat": 0.5,
+      "fiber": 1,
+      "confidence": 0.95
     }}
   ]
 }}"""
@@ -177,32 +185,38 @@ Return a JSON object:
                     logger.debug("Failed to load/downscale image for Gemini: %s", img_err)
 
             inputs = [prompt, img] if img else [prompt]
-            # No timeout limit enforced on Gemini per user request
-            req_opts = {}
-            timeout_env = os.getenv("GEMINI_TIMEOUT_SECONDS")
-            if timeout_env and timeout_env.strip():
-                try:
-                    req_opts["timeout"] = float(timeout_env)
-                except ValueError:
-                    pass
-            elif self.timeout is not None:
-                req_opts["timeout"] = float(self.timeout)
-
+            # Generous 40-second timeout allows sufficient time for Gemini reasoning as requested
+            timeout_sec = float(os.getenv("GEMINI_TIMEOUT_SECONDS", str(self.timeout or 40.0)))
             response = self.model.generate_content(
                 inputs,
                 generation_config={"response_mime_type": "application/json", "temperature": 0.1},
-                **({"request_options": req_opts} if req_opts else {}),
+                request_options={"timeout": timeout_sec},
             )
-            data = _clean_json(response.text)
-            if data and "items" in data and isinstance(data["items"], list):
+            raw_text = response.text or ""
+            data = _clean_json(raw_text)
+
+            if isinstance(data, list):
+                data = {"valid": True, "items": data}
+            elif isinstance(data, dict) and "items" not in data and ("food" in data or "name" in data or "detected" in data):
+                data = {"valid": True, "items": [data]}
+
+            if data and isinstance(data.get("items"), list) and len(data["items"]) > 0:
+                validated_items = []
                 for it in data["items"]:
-                    dish_name = it.get("food") or it.get("name") or "Food Item"
+                    dish_name = it.get("food") or it.get("name") or it.get("detected") or "Food Item"
                     it["food"] = dish_name
                     it["name"] = dish_name
-                data["item_macros"] = data["items"]
+                    if "id" not in it:
+                        it["id"] = len(validated_items)
+                    if int(it.get("id", 0)) >= len(instances):
+                        it["is_supplemented"] = True
+                    validated_items.append(it)
+                data["items"] = validated_items
+                data["item_macros"] = validated_items
                 return data
         except Exception as exc:
-            logger.warning(f"Gemini portion validation skipped or timed out ({exc}), using calibrated physics measurements")
+            print(f"[GeminiValidator ERROR] Gemini call failed: {type(exc)} - {exc}")
+            logger.error("Gemini portion validation failed: %s", exc, exc_info=True)
 
         fallback_items = []
         for m in measurements:
