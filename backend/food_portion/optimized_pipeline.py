@@ -18,6 +18,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Callable
 
+try:
+    import torch
+    if not torch.cuda.is_available():
+        torch.set_num_threads(min(4, os.cpu_count() or 4))
+except Exception:
+    pass
+
 from .detection.high_recall_detector import HighRecallFoodDetector
 from .detection.yolo_detector import Detection
 from .segmentation.sam_segmenter import FoodSegmenter, FoodInstance
@@ -58,6 +65,10 @@ class OptimizedFoodPortionPipeline:
         self.mass_estimator = mass_estimator or MassEstimator()
         self.confidence_estimator = confidence_estimator or ConfidenceEstimator()
         self.gemini_validator = gemini_validator or GeminiValidator()
+
+    def predict(self, *args, **kwargs) -> Dict[str, Any]:
+        """Alias for process() for API compatibility."""
+        return self.process(*args, **kwargs)
 
     def process(
         self,

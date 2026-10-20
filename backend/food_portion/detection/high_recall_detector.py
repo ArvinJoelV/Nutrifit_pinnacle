@@ -124,8 +124,11 @@ class HighRecallFoodDetector(FoodDetector):
         h, w = image.shape[:2]
         containers = [d for d in base_detections if d.is_container]
 
-        # 3. Container-Guided High-Resolution Slicing (SAHI)
+        # 3. Container-Guided High-Resolution Slicing (SAHI - Batched)
         sliced_detections: List[Detection] = []
+        crop_list = []
+        crop_offsets = []
+
         for c in containers:
             cx1, cy1, cx2, cy2 = [int(v) for v in c.bbox]
             cx1 = max(0, cx1)
@@ -138,18 +141,19 @@ class HighRecallFoodDetector(FoodDetector):
             if crop_w < 60 or crop_h < 60:
                 continue
 
-            container_crop = image[cy1:cy2, cx1:cx2]
+            crop_list.append(image[cy1:cy2, cx1:cx2])
+            crop_offsets.append((cx1, cy1))
 
+        if crop_list:
             try:
-                # Sub-threshold inference inside the container region
-                crop_results = self.model.predict(
-                    source=container_crop,
+                # Single batched forward pass for all container crops
+                batch_results = self.model.predict(
+                    source=crop_list,
                     conf=self.conf_threshold_slicing,
                     save=False,
                     verbose=False,
                 )
-
-                for res in crop_results:
+                for res, (cx1, cy1) in zip(batch_results, crop_offsets):
                     boxes = res.boxes
                     if boxes is None or len(boxes) == 0:
                         continue
@@ -160,14 +164,12 @@ class HighRecallFoodDetector(FoodDetector):
                         bx1, by1, bx2, by2 = boxes.xyxy[i].tolist()
                         class_name = names.get(cls_id, f"item_{cls_id}").strip().lower()
 
-                        # Map crop coordinates back to full image coordinate space
                         global_bbox = (
                             float(cx1 + bx1),
                             float(cy1 + by1),
                             float(cx1 + bx2),
                             float(cy1 + by2),
                         )
-
                         sliced_detections.append(
                             Detection(
                                 class_name=class_name,
@@ -177,7 +179,7 @@ class HighRecallFoodDetector(FoodDetector):
                             )
                         )
             except Exception as exc:
-                logger.debug("Container slicing exception: %s", exc)
+                logger.debug("Container slicing batch exception: %s", exc)
 
         # 4. Merge base detections with sliced detections
         all_detections = base_detections + sliced_detections

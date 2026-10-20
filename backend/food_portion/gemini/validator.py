@@ -106,37 +106,24 @@ class GeminiValidator:
             else getattr(calibration, "plate_detected", False)
         )
 
-        prompt = f"""
-You are an expert clinical dietitian and computer vision validator.
-The CV pipeline has physically measured food volume, reference scale, depth elevation, and occlusion for a meal:
+        concise_measurements = [
+            {
+                "id": m["id"],
+                "detected": m["detected_food"],
+                "mass_g": round(float(m.get("estimated_mass_g", 50.0)), 1),
+            }
+            for m in measurements
+        ]
 
-Detected Plate: {round(px_per_cm, 1)} px/cm (detected: {plate_det})
-Physical Measurements:
-{json.dumps(measurements, indent=2)}
+        prompt = f"""You are an expert clinical dietitian validator.
+CV detected items and measured physical mass (scale: {round(px_per_cm, 1)} px/cm, plate: {plate_det}):
+{json.dumps(concise_measurements)}
 
 Tasks:
-1. IDENTIFY AUTHENTIC DISHES WITH HIGH VISUAL FIDELITY:
-   Examine the image and check each item's detected label. If an item was misclassified (e.g. papad misclassified as chapathi, parotta misclassified as naan) or has a generic name (e.g. "curry / sabzi", "pickle / chutney"), REFINE and CORRECT the "food" name to the exact authentic dish name visible in the image (e.g., "Roasted Papad", "Palak Paneer", "Aloo Gobi / Cauliflower Sabzi", "Mango Pickle", "Yellow Dal", "Plain Rice", "Aloo Paratha / Roti").
-
-   CRITICAL INDIAN CUISINE & VEGETARIAN FIDELITY RULE:
-   In authentic Indian meals and Thalis (containing Dal, Rice, Roti/Paratha, Papad, and Pickle):
-   - Red/orange spiced curries with chunks/cubes are almost always VEGETARIAN:
-     * Cubes in spiced gravy/masala = PANEER (e.g. "Palak Paneer", "Kadai Paneer", "Paneer Bhurji"), NOT chicken!
-     * Cauliflower florets or potato pieces = ALOO GOBI or VEGETABLE SABZI, NOT chicken!
-     * Dark seasoned condiment in a small bowl = MANGO PICKLE or SPICY CHUTNEY, NOT meat!
-     * Yellow lentil soup in a small bowl = YELLOW DAL / DAL TADKA, NOT sandwich or bread!
-   - Generic object detectors often mislabel red/orange vegetarian gravies as "tandoori-chicken" or "fried-chicken". DO NOT classify dishes as chicken or poultry unless actual chicken bones or meat fibers are visibly unmistakable. On vegetarian thalis, identify curries by their true vegetarian ingredients.
-
-2. CONTAINER FIDELITY & EXACT ITEM MATCHING:
-   - Match each physically detected item by its exact integer "id" (0 to {len(instances) - 1}).
-   - The detected physical items ({len(instances)}) correspond to the distinct bowls and plate portions.
-   - Do NOT add redundant or hallucinated items if all physical bowls and plate regions are already accounted for.
-
-3. VERIFY ESTIMATED MASS:
-   Check if the physically estimated grams match reality for the visual portion on the plate. If the CV pipeline under- or over-estimated the portion, adjust "mass_g" to the realistic serving mass.
-
-4. Compute exact macronutrients (calories, protein, carbs, fat, fiber) tailored specifically to the grams of each item.
-5. Provide a brief 1-2 sentence clinical nutrition explanation.
+1. IDENTIFY AUTHENTIC INDIAN DISHES:
+   Examine image and correct names (e.g. red gravy on Indian thali = Paneer or Dal or Sabzi, NEVER chicken unless bones/shreds visible; flatbread = Roti or Paratha; yellow lentil = Yellow Dal; condiment = Mango Pickle; papad = Roasted Papad; rice = Plain Rice).
+2. Match each detected item by its integer "id" (0 to {len(instances) - 1}).
+3. Adjust mass_g if needed to realistic serving, and calculate calories, protein, carbs, fat, fiber.
 
 Output ONLY a JSON object:
 {{
@@ -144,21 +131,18 @@ Output ONLY a JSON object:
   "items": [
     {{
       "id": 0,
-      "food": "Accurate Dish Name",
-      "mass_g": 180,
-      "mass_range_g": [160, 205],
-      "calories": 240,
-      "protein": 6,
-      "carbs": 48,
-      "fat": 2,
+      "food": "Authentic Dish Name",
+      "mass_g": 120,
+      "mass_range_g": [100, 140],
+      "calories": 160,
+      "protein": 5,
+      "carbs": 24,
+      "fat": 5,
       "fiber": 2,
-      "confidence": 0.85,
-      "is_supplemented": false
+      "confidence": 0.85
     }}
-  ],
-  "reasoning": "Brief explanation of meal composition and physical scale validation."
-}}
-"""
+  ]
+}}"""
         try:
             import os
             from PIL import Image
@@ -176,12 +160,24 @@ Output ONLY a JSON object:
                     if p and os.path.exists(p) and os.path.isfile(p):
                         resolved_img_path = p
                         break
-            img = Image.open(resolved_img_path) if resolved_img_path else None
+
+            img = None
+            if resolved_img_path:
+                try:
+                    loaded_img = Image.open(resolved_img_path)
+                    if loaded_img.mode != "RGB":
+                        loaded_img = loaded_img.convert("RGB")
+                    # Downscale to max 512px for high-speed transmission and rapid vision tokenization
+                    loaded_img.thumbnail((512, 512), Image.Resampling.BILINEAR)
+                    img = loaded_img
+                except Exception as img_err:
+                    logger.debug("Failed to load/downscale image for Gemini: %s", img_err)
+
             inputs = [prompt, img] if img else [prompt]
-            response = self.model.generate_content(inputs)
+            # Strict 6.5s timeout prevents cloud latency spikes from stalling the local pipeline
+            response = self.model.generate_content(inputs, request_options={"timeout": 6.5})
             data = _clean_json(response.text)
             if data and "items" in data and isinstance(data["items"], list):
-                # Ensure each item has both "name" and "food" populated
                 for it in data["items"]:
                     dish_name = it.get("food") or it.get("name") or "Food Item"
                     it["food"] = dish_name
@@ -189,7 +185,7 @@ Output ONLY a JSON object:
                 data["item_macros"] = data["items"]
                 return data
         except Exception as exc:
-            logger.warning(f"Gemini portion validation failed, using raw physics measurements: {exc}")
+            logger.warning(f"Gemini portion validation skipped or timed out ({exc}), using calibrated physics measurements")
 
         fallback_items = []
         for m in measurements:
