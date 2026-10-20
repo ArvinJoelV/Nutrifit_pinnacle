@@ -986,7 +986,6 @@ If uncertain, estimate realistically and still return numeric macro values.
             response = model.generate_content(
                 [prompt, img],
                 generation_config={"response_mime_type": "application/json"},
-                request_options={"timeout": 15.0},
             )
             raw_text = (response.text or "").strip()
             payload = _extract_json_object(raw_text)
