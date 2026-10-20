@@ -42,7 +42,7 @@ def _clean_json(text: str) -> Any:
 class GeminiValidator:
     """Validates CV measurements and provides semantic nutrition reasoning using Gemini."""
 
-    def __init__(self, model_instance=None, timeout: float = 40.0):
+    def __init__(self, model_instance=None, timeout: float = 60.0):
         self.model = model_instance
         self.timeout = timeout
 
@@ -185,8 +185,8 @@ Return ONLY a JSON object:
                     logger.debug("Failed to load/downscale image for Gemini: %s", img_err)
 
             inputs = [prompt, img] if img else [prompt]
-            # Generous 40-second timeout allows sufficient time for Gemini reasoning as requested
-            timeout_sec = float(os.getenv("GEMINI_TIMEOUT_SECONDS", str(self.timeout or 40.0)))
+            # Generous 60-second (1 minute) timeout allows sufficient time for Gemini reasoning as requested
+            timeout_sec = float(os.getenv("GEMINI_TIMEOUT_SECONDS", str(self.timeout or 60.0)))
             response = self.model.generate_content(
                 inputs,
                 generation_config={"response_mime_type": "application/json", "temperature": 0.1},
