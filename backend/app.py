@@ -4,6 +4,7 @@ import re
 import uuid
 import ast
 import time
+import threading
 from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, redirect, request, Response
 from flask_cors import CORS
@@ -65,14 +66,33 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
 model = genai.GenerativeModel(GEMINI_MODEL) if GOOGLE_API_KEY else None
 print("Model ready:", bool(model))
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=None)
 CORS(app)
 app.config["UPLOAD_FOLDER"] = "static/uploads"
 app.config["CROPPED_FOLDER"] = "static/cropped_mask"
-os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
-os.makedirs(app.config["CROPPED_FOLDER"], exist_ok=True)
+for folder in ["static/uploads", "static/cropped_mask", "static/mask", os.path.join(BASE_DIR, "static", "uploads"), os.path.join(BASE_DIR, "static", "cropped_mask"), os.path.join(BASE_DIR, "static", "mask")]:
+    os.makedirs(folder, exist_ok=True)
+
+@app.route("/static/<path:filename>")
+def serve_static_files(filename):
+    for root in [os.path.abspath("static"), os.path.join(BASE_DIR, "static"), os.path.abspath("backend/static")]:
+        target = os.path.join(root, filename)
+        if os.path.isfile(target):
+            from flask import send_from_directory
+            return send_from_directory(root, filename)
+    return jsonify({"error": "File not found"}), 404
+
 init_db()
 agent_coordinator = HealthCoordinatorAgent(model=model)
+
+# Pre-warm local neural models in background thread to prevent first-request cold-start delay
+def _async_pipeline_warmup():
+    try:
+        from food_portion.factory import warmup_pipelines
+        warmup_pipelines()
+    except Exception:
+        pass
+threading.Thread(target=_async_pipeline_warmup, daemon=True, name="PipelineWarmup").start()
 
 @app.after_request
 def add_no_cache_headers(response):
@@ -781,10 +801,11 @@ def _execute_image_analysis_pipeline(image_path, progress_callback=None, pipelin
         from food_portion.factory import get_food_portion_pipeline
         from food_portion.gemini.validator import GeminiValidator
 
+        is_edge_requested = (pipeline_mode or "").strip().lower() in ("edge", "edge_node", "c100", "legacy", "v1")
         edge_enabled = os.getenv("EDGE_NODE_ENABLED", "false").lower() in ("true", "1", "yes")
         pipeline_res = None
 
-        if edge_enabled:
+        if is_edge_requested and edge_enabled:
             try:
                 from inference.edge_provider import EdgeNodeInferenceProvider
                 edge_provider = EdgeNodeInferenceProvider()

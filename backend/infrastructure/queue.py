@@ -122,7 +122,7 @@ class AsyncJobQueue:
             "image_path": image_path,
             "gemini_model": gemini_model,
             "processor_fn": processor_fn,
-            "context": context or {},
+            "context": job_context,
             "created_at": now,
         }
 
