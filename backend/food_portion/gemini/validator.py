@@ -141,6 +141,7 @@ CRITICAL TASKS:
 Return ONLY a JSON object:
 {{
   "valid": true,
+  "reasoning": "Brief clinical dietitian explanation of verified dishes, portion sizes, and stacked/occluded pieces.",
   "items": [
     {{
       "id": 0,
@@ -215,6 +216,9 @@ Return ONLY a JSON object:
                     validated_items.append(it)
                 data["items"] = validated_items
                 data["item_macros"] = validated_items
+                if not data.get("reasoning"):
+                    dishes_summary = ", ".join(it["food"] for it in validated_items)
+                    data["reasoning"] = f"Clinically verified {len(validated_items)} dishes ({dishes_summary}) with portion estimation."
                 return data
         except Exception as exc:
             print(f"[GeminiValidator ERROR] Gemini call failed: {type(exc)} - {exc}")
