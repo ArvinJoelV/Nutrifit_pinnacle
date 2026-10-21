@@ -122,7 +122,7 @@ class GeminiValidator:
             {
                 "id": m["id"],
                 "detected": m["detected_food"],
-                "mass_g": round(float(m.get("estimated_mass_g", 50.0)), 1),
+                "mass_g": round(float(m.get("estimated_mass_g") or 50.0), 1),
             }
             for m in measurements
         ]
@@ -133,7 +133,9 @@ Review this dining photo. Computer vision detected {len(concise_measurements)} i
 
 CRITICAL TASKS:
 1. Examine the image carefully. Correct any misclassified dish names (e.g. yellow gravy = Yellow Dal / Tadka Dal, NEVER sandwich; crispy flat wafer = Roasted Papad, NEVER chapathi; red gravy on vegetarian thalis = Paneer/Sabzi, NEVER chicken).
-2. DISCOVER MISSED DISHES: Look at the entire plate/table. If there are distinct food items that computer vision missed (such as Chicken Curry, Mutton, Fish, Paneer, Dal, Sabzi, Papad, Curd), YOU MUST ADD THEM to the 'items' list with realistic estimated mass_g!
+2. DISCOVER MISSED DISHES & STACKED ITEMS: Look at the entire plate/table:
+   - If there are distinct food items computer vision missed (such as Chicken Curry, Mutton, Fish, Paneer, Dal, Sabzi, Papad, Curd), YOU MUST ADD THEM to the 'items' list!
+   - STACKED / OVERLAPPING MULTIPLES: Check for stacked flatbreads or multi-piece foods (e.g. 2 Parottas stacked with one partially underneath, 2-3 Rotis/Puris, 2 Idlis, multiple Vadas). YOU MUST LIST EACH PIECE AS A SEPARATE ITEM (e.g. "Malabar Parotta (Top)", "Malabar Parotta (Bottom)") so that occluded items are not omitted!
 3. For every item, provide realistic clinical mass_g, calories, protein, carbs, fat, fiber.
 
 Return ONLY a JSON object:

@@ -67,9 +67,26 @@ def soft_nms(
             iou = compute_iou(best.bbox, d.bbox)
             if iou > 0.0:
                 # 1. Same-class duplicate suppression:
-                # Discard duplicate bounding boxes of the exact same food class
-                if d.class_name.lower() == best.class_name.lower() and iou > 0.38:
-                    continue
+                # Stackable twin foods (parottas, rotis, idlis, vadas, puris, pancakes) frequently overlap (IoU 0.35-0.70).
+                # Only suppress if bounding boxes are nearly identical (IoU > 0.78) with collinear centers.
+                if d.class_name.lower() == best.class_name.lower():
+                    is_stackable = any(k in d.class_name.lower() for k in [
+                        "parotta", "paratha", "naan", "roti", "chapathi", "dosa",
+                        "idli", "vada", "puri", "poori", "pancake", "cutlet", "patty",
+                        "samosa", "bread"
+                    ])
+                    c_best = ((best.bbox[0] + best.bbox[2]) / 2, (best.bbox[1] + best.bbox[3]) / 2)
+                    c_d = ((d.bbox[0] + d.bbox[2]) / 2, (d.bbox[1] + d.bbox[3]) / 2)
+                    diag = np.hypot(best.bbox[2] - best.bbox[0], best.bbox[3] - best.bbox[1])
+                    center_dist = np.hypot(c_best[0] - c_d[0], c_best[1] - c_d[1])
+                    center_ratio = center_dist / max(1.0, diag)
+
+                    if is_stackable:
+                        if iou > 0.78 and center_ratio < 0.12:
+                            continue
+                    else:
+                        if iou > 0.65 and center_ratio < 0.15:
+                            continue
 
                 # 2. Same-compartment / bowl conflict resolution:
                 # If two different food classes compete for the exact same physical space (> 0.70 IoU)
