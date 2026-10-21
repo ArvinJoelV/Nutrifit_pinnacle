@@ -93,8 +93,9 @@ class ScaleEstimator:
                     conf = 0.75
                     min_major = 60
 
-                if major > min_major:
-                    px_per_cm = major / ref_diameter
+                # Ensure major axis is geometrically plausible and not a degenerate border arc
+                if min_major < major <= 1.25 * max(h, w):
+                    px_per_cm = float(np.clip(major / ref_diameter, 8.0, 75.0))
                     tilt = float(np.clip(minor / major, 0.2, 1.0))
                     return ScaleCalibration(
                         pixels_per_cm=px_per_cm,
@@ -143,24 +144,25 @@ class ScaleEstimator:
                     continue
 
         if valid_ellipses:
-            # Pick the largest qualifying ellipse
+            # Pick the largest qualifying ellipse with valid physical geometry
             valid_ellipses.sort(key=lambda x: x[0], reverse=True)
-            _, best_ellipse, best_cnt, major, aspect = valid_ellipses[0]
-            px_per_cm = major / self.default_plate_diameter_cm
+            for _, best_ellipse, best_cnt, major, aspect in valid_ellipses:
+                if major <= 1.25 * max(h, w):
+                    px_per_cm = float(np.clip(major / self.default_plate_diameter_cm, 8.0, 75.0))
+                    return ScaleCalibration(
+                        pixels_per_cm=px_per_cm,
+                        cm_per_pixel=1.0 / px_per_cm,
+                        plate_detected=True,
+                        plate_contour=best_cnt,
+                        plate_ellipse=best_ellipse,
+                        tilt_ratio=float(aspect),
+                        confidence=0.78,
+                    )
 
-            return ScaleCalibration(
-                pixels_per_cm=px_per_cm,
-                cm_per_pixel=1.0 / px_per_cm,
-                plate_detected=True,
-                plate_contour=best_cnt,
-                plate_ellipse=best_ellipse,
-                tilt_ratio=float(aspect),
-                confidence=0.78,
-            )
-
+        fallback_px = float(np.clip(w * 0.60 / self.default_plate_diameter_cm, 12.0, 50.0))
         return ScaleCalibration(
-            pixels_per_cm=w * 0.60 / self.default_plate_diameter_cm,
-            cm_per_pixel=self.default_plate_diameter_cm / (w * 0.60),
+            pixels_per_cm=fallback_px,
+            cm_per_pixel=1.0 / fallback_px,
             plate_detected=False,
             confidence=0.40,
         )
