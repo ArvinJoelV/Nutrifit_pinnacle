@@ -25,7 +25,8 @@ class MassEstimator:
         raw_mass_g = volume_cm3 * density
 
         # Apply realistic culinary boundaries (avoid absurd fractions or impossible plate portions)
-        mass_g = round(float(np.clip(raw_mass_g, 10.0, 1200.0)), 1)
+        # Standard human plate portion for a single item ranges from 10g (sauce/garnish) to 600g (heaped rice/biryani)
+        mass_g = round(float(np.clip(raw_mass_g, 10.0, 600.0)), 1)
         instance.mass_g = mass_g
         instance.density_g_cm3 = density
         instance.mass_range_g = (round(mass_g * 0.85, 1), round(mass_g * 1.15, 1))

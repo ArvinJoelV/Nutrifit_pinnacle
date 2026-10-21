@@ -40,15 +40,16 @@ class PileVolumeEstimator(BaseVolumeEstimator):
         food_name = instance.food_class.lower()
         shape_factor = SHAPE_FACTORS.get(food_name, SHAPE_FACTORS.get("pile", 0.72))
 
-        area_cm2 = instance.estimated_total_area_cm2 or instance.visible_area_cm2
+        # Standard 25cm dinner plate surface area is ~490 cm^2; single dish cannot physically exceed 420 cm^2
+        area_cm2 = min(420.0, float(instance.estimated_total_area_cm2 or instance.visible_area_cm2))
         depth_stats = instance.depth_stats or {}
         mean_height_cm = float(depth_stats.get("mean", 1.8))
 
         # Clamp mean height to physically sensible ranges for dining plates
-        mean_height_cm = max(0.8, min(5.5, mean_height_cm))
+        mean_height_cm = max(0.8, min(4.5, mean_height_cm))
 
         volume_cm3 = area_cm2 * mean_height_cm * shape_factor
-        return float(max(10.0, volume_cm3))
+        return float(min(650.0, max(10.0, volume_cm3)))
 
 
 class FlatFoodVolumeEstimator(BaseVolumeEstimator):
@@ -66,9 +67,9 @@ class FlatFoodVolumeEstimator(BaseVolumeEstimator):
         food_name = instance.food_class.lower()
         thickness_cm = FLAT_FOOD_THICKNESS_CM.get(food_name, 0.40)
 
-        area_cm2 = instance.estimated_total_area_cm2 or instance.visible_area_cm2
+        area_cm2 = min(420.0, float(instance.estimated_total_area_cm2 or instance.visible_area_cm2))
         volume_cm3 = area_cm2 * thickness_cm
-        return float(max(5.0, volume_cm3))
+        return float(min(250.0, max(5.0, volume_cm3)))
 
 
 class LiquidVolumeEstimator(BaseVolumeEstimator):
@@ -83,7 +84,7 @@ class LiquidVolumeEstimator(BaseVolumeEstimator):
         depth_map: np.ndarray,
         calibration: ScaleCalibration,
     ) -> float:
-        area_cm2 = instance.estimated_total_area_cm2 or instance.visible_area_cm2
+        area_cm2 = min(220.0, float(instance.estimated_total_area_cm2 or instance.visible_area_cm2))
 
         # Effective radius of the visible liquid pool
         effective_radius_cm = np.sqrt(max(1.0, area_cm2) / np.pi)
@@ -92,7 +93,7 @@ class LiquidVolumeEstimator(BaseVolumeEstimator):
 
         # Truncated cone / parabolic bowl approximation: V = 0.60 * pi * r^2 * h
         volume_cm3 = 0.60 * np.pi * (effective_radius_cm ** 2) * estimated_depth_cm
-        return float(max(15.0, volume_cm3))
+        return float(min(400.0, max(15.0, volume_cm3)))
 
 
 class PieceFoodVolumeEstimator(BaseVolumeEstimator):
@@ -121,8 +122,8 @@ class PieceFoodVolumeEstimator(BaseVolumeEstimator):
         (_, _), (dim1, dim2), _ = rect
 
         cm_per_px = calibration.cm_per_pixel
-        length_cm = max(dim1, dim2) * cm_per_px
-        width_cm = max(0.5, min(dim1, dim2) * cm_per_px)
+        length_cm = min(20.0, max(dim1, dim2) * cm_per_px)
+        width_cm = min(16.0, max(0.5, min(dim1, dim2) * cm_per_px))
 
         depth_stats = instance.depth_stats or {}
         height_cm = float(depth_stats.get("max", 0.0) - depth_stats.get("min", 0.0))
@@ -130,7 +131,7 @@ class PieceFoodVolumeEstimator(BaseVolumeEstimator):
             # Fallback height proportional to width
             height_cm = width_cm * 0.65
 
-        height_cm = min(8.0, max(1.0, height_cm))
+        height_cm = min(7.0, max(1.0, height_cm))
 
         # Triaxial ellipsoid: V = (4/3) * pi * (a/2) * (b/2) * (c/2)
         # Corrected by mask solidity factor
@@ -139,7 +140,7 @@ class PieceFoodVolumeEstimator(BaseVolumeEstimator):
         solidity = min(1.0, max(0.6, area_cnt / box_area))
 
         volume_cm3 = (4.0 / 3.0) * np.pi * (length_cm / 2.0) * (width_cm / 2.0) * (height_cm / 2.0) * solidity
-        return float(max(8.0, volume_cm3))
+        return float(min(450.0, max(8.0, volume_cm3)))
 
 
 class VolumeEstimator:

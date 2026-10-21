@@ -31,36 +31,56 @@ class ScaleEstimator:
     ) -> ScaleCalibration:
         """Estimates scale from container instances or geometric plate ellipse detection."""
         h, w = image.shape[:2]
+        min_dim = min(h, w)
+        max_dim = max(h, w)
 
-        # 1. Check if an explicit plate container was segmented
-        plate_instances = [inst for inst in (container_instances or []) if any(k in inst.food_class.lower() for k in ["plate", "thali", "tray", "dish"])]
-        for inst in plate_instances:
+        # 1. Check container instances (both plates/thalis and large dining bowls)
+        containers = container_instances or []
+        for inst in containers:
+            is_explicit_plate = any(k in inst.food_class.lower() for k in ["plate", "thali", "tray", "dish"])
+            bbox = getattr(inst, "bbox", None)
+            bbox_w = (bbox[2] - bbox[0]) if bbox is not None else 0
+            bbox_h = (bbox[3] - bbox[1]) if bbox is not None else 0
+            max_span = max(bbox_w, bbox_h)
+
+            # A container spanning > 38% of min_dim is the main dining vessel (plate/thali/large bowl)
+            is_main_vessel = is_explicit_plate or (max_span > 0.38 * min_dim)
+            ref_diameter = self.default_plate_diameter_cm if is_main_vessel else 10.0
+
+            # 1a. Try fitting ellipse on visible container mask
             if inst.visible_mask is not None and np.sum(inst.visible_mask) > 1000:
-                calib = self._fit_ellipse_from_mask(inst.visible_mask, h, w, is_plate=True)
+                calib = self._fit_ellipse_from_mask(inst.visible_mask, h, w, is_plate=is_main_vessel)
                 if calib.plate_detected:
                     return calib
+
+            # 1b. Fallback to container bounding box if mask fitting was disrupted by food covering the plate
+            if bbox is not None and max_span > 60:
+                if min_dim * 0.35 < max_span <= 1.25 * max_dim:
+                    px_per_cm = float(np.clip(max_span / ref_diameter, 15.0, 65.0))
+                    tilt = float(np.clip(min(bbox_w, bbox_h) / max(1.0, max_span), 0.25, 1.0))
+                    return ScaleCalibration(
+                        pixels_per_cm=px_per_cm,
+                        cm_per_pixel=1.0 / px_per_cm,
+                        plate_detected=True,
+                        tilt_ratio=tilt,
+                        confidence=0.82 if is_main_vessel else 0.70,
+                    )
 
         # 2. Heuristic visual plate detection via edge & contour analysis (finds outer plate boundary)
         calib = self._detect_plate_contour(image)
         if calib.plate_detected:
             return calib
 
-        # 3. Check if a bowl container can serve as secondary reference (standard Indian katori ~10cm)
-        bowl_instances = [inst for inst in (container_instances or []) if "bowl" in inst.food_class.lower() or "cup" in inst.food_class.lower()]
-        for inst in bowl_instances:
-            if inst.visible_mask is not None and np.sum(inst.visible_mask) > 1000:
-                calib = self._fit_ellipse_from_mask(inst.visible_mask, h, w, is_plate=False)
-                if calib.plate_detected:
-                    return calib
-
-        # 4. Default fallback scale based on typical smartphone dining distance (~35cm height)
-        # Typically a 25cm plate spans ~60% of image width in casual meal photos
-        estimated_plate_width_px = w * 0.62
-        px_per_cm = estimated_plate_width_px / self.default_plate_diameter_cm
+        # 3. Orientation-aware default fallback scale based on typical smartphone dining distance (~35cm height)
+        # In casual dining photos:
+        # In portrait mode (h > w), the plate typically spans ~78%-85% of image width
+        # In landscape mode (w >= h), the plate typically spans ~70%-80% of image height
+        estimated_plate_span_px = min_dim * 0.80
+        fallback_px = float(np.clip(estimated_plate_span_px / self.default_plate_diameter_cm, 20.0, 50.0))
 
         return ScaleCalibration(
-            pixels_per_cm=px_per_cm,
-            cm_per_pixel=1.0 / px_per_cm,
+            pixels_per_cm=fallback_px,
+            cm_per_pixel=1.0 / fallback_px,
             plate_detected=False,
             tilt_ratio=0.85,
             confidence=0.45,
