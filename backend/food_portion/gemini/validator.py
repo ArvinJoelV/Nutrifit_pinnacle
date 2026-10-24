@@ -132,10 +132,17 @@ Review this dining photo. Computer vision detected {len(concise_measurements)} i
 {json.dumps(concise_measurements)}
 
 CRITICAL TASKS:
-1. Examine the image carefully. Correct any misclassified dish names (e.g. yellow gravy = Yellow Dal / Tadka Dal, NEVER sandwich; crispy flat wafer = Roasted Papad, NEVER chapathi; red gravy on vegetarian thalis = Paneer/Sabzi, NEVER chicken).
+1. Examine the image carefully. Correct any misclassified dish names into exact authentic Indian dishes:
+   - Green/yellow shredded stir-fried vegetable = Cabbage Poriyal / Thoran (NEVER poha, egg, or salad).
+   - Diced spiced yellow potato cubes = Potato Masala Poriyal / Potato Roast (NEVER laddu or sweet).
+   - Golden-brown circular fried lentil patties = Masala Vada / Medu Vada (NEVER pani puri, egg, or poori).
+   - White liquid/paste in a katori/bowl = Coconut Chutney / Curd / Payasam.
+   - Spiced vegetable/lentil soups in bowls = Drumstick Sambar, Rasam, or Tadka Dal.
+   - Steamed white grain with yellow dal poured on it = Plain Rice with Dal / Paruppu.
+   - Crispy thin wafer = Roasted Papad / Appalam (NEVER roti or chapathi).
 2. DISCOVER MISSED DISHES & STACKED ITEMS: Look at the entire plate/table:
-   - If there are distinct food items computer vision missed (such as Chicken Curry, Mutton, Fish, Paneer, Dal, Sabzi, Papad, Curd), YOU MUST ADD THEM to the 'items' list!
-   - STACKED / OVERLAPPING MULTIPLES: Check for stacked flatbreads or multi-piece foods (e.g. 2 Parottas stacked with one partially underneath, 2-3 Rotis/Puris, 2 Idlis, multiple Vadas). YOU MUST LIST EACH PIECE AS A SEPARATE ITEM (e.g. "Malabar Parotta (Top)", "Malabar Parotta (Bottom)") so that occluded items are not omitted!
+   - If there are distinct food items computer vision missed (such as Chicken Curry, Mutton, Fish, Paneer, Dal, Sabzi, Papad, Curd, Poriyal), YOU MUST ADD THEM to the 'items' list!
+   - STACKED / OVERLAPPING MULTIPLES: Check for stacked flatbreads or multi-piece foods (e.g. 2 Parottas stacked with one partially underneath, 2-3 Rotis/Puris, 2 Idlis, multiple Vadas). YOU MUST LIST EACH PIECE AS A SEPARATE ITEM (e.g. "Masala Vada (Piece 1)", "Masala Vada (Piece 2)") so that each piece is accounted for!
 3. For every item, provide realistic clinical mass_g, calories, protein, carbs, fat, fiber.
 
 Return ONLY a JSON object:

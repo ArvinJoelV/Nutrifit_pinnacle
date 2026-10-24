@@ -141,12 +141,16 @@ class HighRecallFoodDetector(FoodDetector):
         h, w = image.shape[:2]
         containers = [d for d in base_detections if d.is_container]
 
-        # 3. Container-Guided High-Resolution Slicing (SAHI - Batched)
+        # 3. Container-Guided High-Resolution Slicing (SAHI - Batched Multi-Quadrant)
         sliced_detections: List[Detection] = []
         crop_list = []
         crop_offsets = []
 
-        for c in containers:
+        target_containers = containers if containers else [
+            Detection(class_name="plate", confidence=0.5, bbox=(0.0, 0.0, float(w), float(h)), is_container=True)
+        ]
+
+        for c in target_containers:
             cx1, cy1, cx2, cy2 = [int(v) for v in c.bbox]
             cx1 = max(0, cx1)
             cy1 = max(0, cy1)
@@ -158,19 +162,51 @@ class HighRecallFoodDetector(FoodDetector):
             if crop_w < 60 or crop_h < 60:
                 continue
 
+            # 3a. Full container / plate view
             crop_list.append(image[cy1:cy2, cx1:cx2])
             crop_offsets.append((cx1, cy1))
 
+            # 3b. Multi-Quadrant SAHI Slicing for dining plates / thalis:
+            # Slices the plate into high-resolution overlapping sub-regions (TL, TR, BL, BR, Center)
+            # Magnifies micro-sides (katoris, poriyals, chutneys, vadas) by 3-4x visual resolution
+            if crop_w >= 180 and crop_h >= 180:
+                qw = int(crop_w * 0.60)
+                qh = int(crop_h * 0.60)
+
+                # 1. Top-Left quadrant (e.g. katoris 1 & 2)
+                crop_list.append(image[cy1:cy1 + qh, cx1:cx1 + qw])
+                crop_offsets.append((cx1, cy1))
+
+                # 2. Top-Right quadrant (e.g. vegetable stir-fry / poriyal)
+                crop_list.append(image[cy1:cy1 + qh, cx2 - qw:cx2])
+                crop_offsets.append((cx2 - qw, cy1))
+
+                # 3. Bottom-Left quadrant (e.g. chutney / curd katori)
+                crop_list.append(image[cy2 - qh:cy2, cx1:cx1 + qw])
+                crop_offsets.append((cx1, cy2 - qh))
+
+                # 4. Bottom-Right quadrant (e.g. potato roast / vegetable dry curry)
+                crop_list.append(image[cy2 - qh:cy2, cx2 - qw:cx2])
+                crop_offsets.append((cx2 - qw, cy2 - qh))
+
+                # 5. Center tile (middle 60% e.g. center vadas, puris, garnishes)
+                mid_x1 = cx1 + int(crop_w * 0.20)
+                mid_y1 = cy1 + int(crop_h * 0.20)
+                mid_x2 = cx1 + int(crop_w * 0.80)
+                mid_y2 = cy1 + int(crop_h * 0.80)
+                crop_list.append(image[mid_y1:mid_y2, mid_x1:mid_x2])
+                crop_offsets.append((mid_x1, mid_y1))
+
         if crop_list:
             try:
-                # Single batched forward pass for all container crops
+                # Single batched forward pass for all container crops & quadrants
                 batch_results = self.model.predict(
                     source=crop_list,
                     conf=self.conf_threshold_slicing,
                     save=False,
                     verbose=False,
                 )
-                for res, (cx1, cy1) in zip(batch_results, crop_offsets):
+                for res, (ox, oy) in zip(batch_results, crop_offsets):
                     boxes = res.boxes
                     if boxes is None or len(boxes) == 0:
                         continue
@@ -182,10 +218,10 @@ class HighRecallFoodDetector(FoodDetector):
                         class_name = names.get(cls_id, f"item_{cls_id}").strip().lower()
 
                         global_bbox = (
-                            float(cx1 + bx1),
-                            float(cy1 + by1),
-                            float(cx1 + bx2),
-                            float(cy1 + by2),
+                            float(ox + bx1),
+                            float(oy + by1),
+                            float(ox + bx2),
+                            float(oy + by2),
                         )
                         sliced_detections.append(
                             Detection(
